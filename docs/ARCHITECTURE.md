@@ -9,6 +9,7 @@ This document explains how the platform is organised today and how the planned A
 - [Multi-sheet linking and routing](#multi-sheet-linking-and-routing)
 - [Target analysis](#target-analysis)
 - [Model builder](#model-builder)
+- [Recommender](#recommender)
 - [Dashboard state](#dashboard-state)
 - [Key design decisions](#key-design-decisions)
 - [Planned architecture](#planned-architecture)
@@ -55,6 +56,7 @@ flowchart TB
 | `core/date_parts.py` | Detect "March 2025", "Q1", "in 2024"; choose the date column from question words; date-part masks |
 | `core/workbook.py` | Load all sheets, detect key links, build enriched (looked-up) frames |
 | `core/target_analysis.py` | Target detection and the target report (segments, feature signal, leakage, panel, split, drift, Markdown) |
+| `core/recommend/` | Recommendation: `roles` (user / item / time / outcome / success / group detection), `history` (point-in-time features and as-of snapshots), `planner` (daily plans under capacity, gap and group rules), `backtest` (strategy comparison on held-out weeks), `engine` (orchestration) |
 | `core/modeling/` | Goal-driven model builder: `goal` (GoalSpec), `features` (role-based preprocessing), `split` (time / stratified windows), `models` (candidates, metrics, lift), `explain` (permutation importance, per-row reasons), `builder` (orchestration), `registry` (save / list / load) |
 | `core/NLP/query_parser.py` | Question → `ParsedQuery` (intent, entity, filters, dates, group-by, chart type, notes, unresolved values) |
 | `core/NLP/query_plan.py` | `ParsedQuery` → validated `QueryPlan` |
@@ -159,6 +161,29 @@ flowchart LR
 | Explanations | Permutation importance on up to 3,000 test rows; per-row reasons from the top columns, using the direction of each column's relation to the predictions and mid-rank percentiles |
 | Scoring | Unlabelled rows if any, else the latest period, else all rows; the final model is refit on all labelled rows |
 | Background jobs | `DatasetBundle.start_model_job` runs `build_model` in a thread; a `dcc.Interval` polls progress messages |
+
+## Recommender
+
+```mermaid
+flowchart LR
+    I[Interaction table<br/>+ lookup columns] --> R[Roles<br/>user · item · time ·<br/>outcome · success · group]
+    R --> H[Point-in-time history<br/>per contact]
+    H --> S[Success model<br/>Phase 3a builder]
+    S --> P[Daily planner<br/>score as of each day →<br/>gap · group · capacity]
+    S -->|pre-refit test scores| B[Backtest<br/>model vs rules vs random]
+    U[Item & user universes<br/>from lookup sheets] --> P
+    P --> O[Plan + reasons + CSV]
+```
+
+| Step | Method |
+|---|---|
+| Interaction sheets | A sheet qualifies when it has two repeated identifier columns, a date column and a low-cardinality outcome with at least one positive value |
+| Roles | Item = repeated key with most distinct values, user = the next; event date = most-filled, irregular, most distinct date; success values = positive words without negations; group = same column name on the user's and the item's lookup sheet, else a column constant per user and per item |
+| History features | Sorted by item and time; cumulative counts shifted by one so the current contact is excluded; 90-day window by binary search; as-of snapshots use only rows strictly before the date |
+| Model | `GoalSpec(goal_type="rank", target="Success")` through `build_model`, so splits, candidates, selection and explanations are shared with Phase 3a |
+| Universes | Items from the item lookup sheet (all doctors, including never-visited ones) plus any extra items seen in interactions; users from the user lookup sheet; groups from lookup columns or per-key modes |
+| Planner | Per day: as-of scoring, gap filter (real contacts and earlier planned days), per-group round-robin up to capacity; weekends skipped |
+| Backtest | Uses the chosen model's test-window predictions made **before** the final refit, so no test outcome leaks into the comparison |
 
 ## Dashboard state
 

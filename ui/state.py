@@ -33,6 +33,16 @@ from core.NLP.query_parser import QueryParser, code_key
 from core.NLP.query_plan import QueryPlanner
 from core.schema_inference import DatasetSchema, infer_schema, name_tokens, same_word
 from core.modeling import GoalSpec, ModelResult, build_model, propose_goal
+from core.recommend import (
+    InteractionRoles,
+    PlanSettings,
+    RecommendResult,
+    build_recommender,
+    complete_roles,
+    default_roles,
+    group_options,
+    role_options,
+)
 from core.target_analysis import TargetReport, analyze_target, detect_targets
 from core.workbook import Workbook
 from visualization import (
@@ -88,6 +98,7 @@ class DatasetBundle:
     _target_reports: dict[str, TargetReport] = field(default_factory=dict)
     _model_jobs: dict[str, dict[str, Any]] = field(default_factory=dict)
     latest_model: ModelResult | None = None
+    latest_recommendation: RecommendResult | None = None
     _contexts: dict[str, "AskContext"] = field(default_factory=dict)
     _lock: threading.RLock = field(default_factory=threading.RLock)
 
@@ -152,23 +163,34 @@ class DatasetBundle:
 
     def start_model_job(self, goal_type: str, target: str) -> str:
         spec = self.model_goal(goal_type, target)
+
+        def work(progress):
+            return build_model(self.df, self.schema, spec, progress=progress)
+
+        def done(result):
+            self.latest_model = result
+
+        return self._run_job(work, done)
+
+    def model_job(self, job_id: str | None) -> dict[str, Any] | None:
+        if not job_id:
+            return None
+        with self._lock:
+            return self._model_jobs.get(job_id)
+
+    def _run_job(self, work, on_done) -> str:
+        """Run `work(progress)` in a thread and track it as a job."""
+
         job_id = uuid.uuid4().hex[:8]
-        job: dict[str, Any] = {
-            "id": job_id,
-            "status": "running",
-            "messages": [],
-            "result": None,
-            "error": None,
-        }
+        job: dict[str, Any] = {"id": job_id, "status": "running", "messages": [], "result": None, "error": None}
 
         with self._lock:
             self._model_jobs[job_id] = job
 
         def run() -> None:
             try:
-                result = build_model(self.df, self.schema, spec, progress=job["messages"].append)
-                job["result"] = result
-                self.latest_model = result
+                job["result"] = work(job["messages"].append)
+                on_done(job["result"])
                 job["status"] = "done"
             except Exception as error:  # noqa: BLE001 - reported in the UI
                 job["error"] = str(error)
@@ -177,11 +199,61 @@ class DatasetBundle:
         threading.Thread(target=run, daemon=True).start()
         return job_id
 
-    def model_job(self, job_id: str | None) -> dict[str, Any] | None:
-        if not job_id:
-            return None
-        with self._lock:
-            return self._model_jobs.get(job_id)
+    # ------------------------------------------------------------------
+    # Recommendation (interaction tables)
+    # ------------------------------------------------------------------
+
+    def interaction_context(self, sheet: str | None) -> tuple[pd.DataFrame, DatasetSchema, dict[str, str], list]:
+        """Frame (with lookup columns), schema, column sources and key links."""
+
+        context = self._ask_context(sheet)
+        links = (
+            [link for link in self.workbook.links() if link.sheet == sheet]
+            if self.workbook is not None and sheet
+            else []
+        )
+        return context.df, context.schema, context.sources, links
+
+    def interaction_sheets(self) -> list[str | None]:
+        """Sheets that look like interaction tables, largest first."""
+
+        candidates = self.workbook.readable_sheets() if self.workbook is not None else [self.sheet]
+        found = []
+
+        for sheet in candidates:
+            try:
+                frame, schema, sources, links = self.interaction_context(sheet)
+                default_roles(frame, schema, sources, links)
+                found.append((sheet, len(frame)))
+            except (ValueError, KeyError, TypeError):
+                continue
+
+        return [sheet for sheet, _ in sorted(found, key=lambda item: -item[1])]
+
+    def interaction_options(self, sheet: str | None):
+        frame, schema, sources, links = self.interaction_context(sheet)
+        return role_options(frame, schema, sources), default_roles(frame, schema, sources, links)
+
+    def interaction_groups(self, sheet: str | None, user: str, item: str) -> list[tuple[str, str, str]]:
+        frame, _, sources, links = self.interaction_context(sheet)
+        lookup = {link.column: link.lookup_sheet for link in links}
+        return group_options(frame, sources, lookup.get(user), lookup.get(item), user, item)
+
+    def interaction_roles(self, sheet: str | None, **choices: Any) -> InteractionRoles:
+        frame, schema, sources, links = self.interaction_context(sheet)
+        return complete_roles(frame, schema, sources, links, **choices)
+
+    def start_recommend_job(self, sheet: str | None, roles: InteractionRoles, settings: PlanSettings) -> str:
+        frame, _, _, _ = self.interaction_context(sheet)
+        lookup = self.workbook.frame if self.workbook is not None else None
+
+        def work(progress):
+            return build_recommender(frame, roles, settings, lookup=lookup, progress=progress)
+
+        def done(result):
+            self.latest_recommendation = result
+
+        return self._run_job(work, done)
 
     # ------------------------------------------------------------------
     # Charts

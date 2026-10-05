@@ -1168,3 +1168,279 @@ def _pct(value) -> str:
 
 def _times(value) -> str:
     return "–" if value is None or pd.isna(value) else f"{value:.1f}×"
+
+
+# ----------------------------------------------------------------------
+# Recommend (next-best-contact plans)
+# ----------------------------------------------------------------------
+
+NO_GROUP_VALUE = "__none__"
+CURRENT_SHEET = "__current__"
+
+
+def sheet_from_value(value: str | None) -> str | None:
+    return None if value in (None, CURRENT_SHEET) else value
+PLAN_ROWS = 300
+
+
+def recommend_panel(bundle: DatasetBundle) -> html.Div:
+    sheets = bundle.interaction_sheets()
+
+    if not sheets:
+        return ui.empty_state(
+            "No interaction table found",
+            "Recommendations need a table of interactions: who contacted what, "
+            "when, and with which outcome (e.g. visits with MR, doctor, date "
+            "and outcome).",
+        )
+
+    sheet = sheets[0]
+    sheet_picker = [
+        html.Div(
+            [
+                html.Label("Interaction table", className="field-label"),
+                dcc.Dropdown(
+                    id="rec-sheet",
+                    options=[
+                        {"label": name if name else bundle.name, "value": name or CURRENT_SHEET}
+                        for name in sheets
+                    ],
+                    value=sheet or CURRENT_SHEET,
+                    clearable=False,
+                    style={"minWidth": "200px"},
+                ),
+            ],
+            className="field",
+        )
+    ]
+
+    intro = (
+        "Learns which contacts tend to succeed from the interaction history "
+        "(using only information available before each contact), then plans "
+        "each user's next working days within their group, respecting a daily "
+        "capacity and a minimum gap between contacts with the same item. A "
+        "backtest compares the model with simple rules on held-out weeks."
+    )
+    if sheet != bundle.sheet:
+        intro += f" Using the '{sheet}' sheet, which holds the interactions."
+
+    return html.Div(
+        [
+            dcc.Store(id="rec-job"),
+            dcc.Interval(id="rec-poll", interval=1000, disabled=True),
+            ui.section(
+                "Recommend next contacts",
+                html.Div(
+                    [
+                        html.Div(sheet_picker, className="target-picker"),
+                        html.Div(recommend_roles_view(bundle, sheet), id="rec-roles"),
+                    ],
+                    className="card",
+                ),
+                intro,
+            ),
+            html.Div(
+                recommend_results_view(bundle.latest_recommendation) if bundle.latest_recommendation else None,
+                id="rec-results",
+            ),
+        ]
+    )
+
+
+def _dropdown(component_id: str, label: str, options: list, value, multi: bool = False, width: str = "200px") -> html.Div:
+    return html.Div(
+        [
+            html.Label(label, className="field-label"),
+            dcc.Dropdown(
+                id=component_id,
+                options=options,
+                value=value,
+                multi=multi,
+                clearable=multi,
+                style={"minWidth": width},
+            ),
+        ],
+        className="field",
+    )
+
+
+def _number(component_id: str, label: str, value, placeholder: str) -> html.Div:
+    return html.Div(
+        [
+            html.Label(label, className="field-label"),
+            dcc.Input(id=component_id, type="number", min=1, step=1, value=value,
+                      placeholder=placeholder, className="input", style={"width": "120px"}),
+        ],
+        className="field",
+    )
+
+
+def recommend_roles_view(bundle: DatasetBundle, sheet: str | None) -> html.Div:
+    try:
+        options, roles = bundle.interaction_options(sheet)
+    except ValueError as error:
+        return ui.message(str(error), "error")
+
+    frame, _, _, _ = bundle.interaction_context(sheet)
+    as_options = lambda columns: [{"label": column, "value": column} for column in columns]
+
+    groups = bundle.interaction_groups(sheet, roles.user, roles.item)
+
+    return html.Div(
+        [
+            html.Div(
+                [
+                    _dropdown("rec-user", "Who acts (user)", as_options(options.users), roles.user),
+                    _dropdown("rec-item", "Contacted (item)", as_options(options.items), roles.item),
+                    _dropdown("rec-time", "When", as_options(options.times), roles.time),
+                    _dropdown("rec-outcome", "Outcome", as_options(options.outcomes), roles.outcome),
+                ],
+                className="target-picker",
+            ),
+            html.Div(
+                [
+                    _dropdown(
+                        "rec-success", "Counts as success",
+                        success_options(frame, roles.outcome), roles.success_values,
+                        multi=True, width="320px",
+                    ),
+                    _dropdown("rec-group", "Plan within", group_dropdown(groups), _group_value(groups, roles), width="220px"),
+                ],
+                className="target-picker",
+            ),
+            html.Div(
+                [
+                    _number("rec-days", "Working days", 5, "5"),
+                    _number("rec-capacity", "Contacts per user per day", None, "auto"),
+                    _number("rec-gap", "Min days between contacts", None, "auto"),
+                    html.Button("Build plan", id="rec-build", n_clicks=0, className="btn btn-primary"),
+                ],
+                className="target-picker",
+            ),
+            html.P(
+                "Blank capacity and gap are taken from the history (typical "
+                "contacts per user per day, typical days between contacts).",
+                className="card-explanation",
+            ),
+        ]
+    )
+
+
+def success_options(frame: pd.DataFrame, outcome: str) -> list[dict]:
+    values = frame[outcome].dropna().unique() if outcome in frame.columns else []
+    return [{"label": str(value), "value": value} for value in values]
+
+
+def group_dropdown(groups: list[tuple[str, str, str]]) -> list[dict]:
+    options = [
+        {"label": label if user == item else f"{label} (user's and item's)", "value": label}
+        for label, user, item in groups
+    ]
+    return options + [{"label": "No grouping", "value": NO_GROUP_VALUE}]
+
+
+def _group_value(groups, roles) -> str:
+    for label, user, item in groups:
+        if user == roles.user_group and item == roles.item_group:
+            return label
+    return NO_GROUP_VALUE
+
+
+def recommend_progress_view(job: dict) -> html.Div:
+    return model_progress_view(job)
+
+
+def recommend_results_view(result) -> html.Div:
+    model = result.model
+    best = model.test_metrics
+    backtest = result.backtest.set_index("Strategy")
+    settings = result.settings
+
+    tiles = [
+        ui.kpi_tile("Success model", model.best_name, f"PR-AUC {_fmt(best.get('pr_auc'))} · ROC-AUC {_fmt(best.get('roc_auc'))}"),
+        ui.kpi_tile("Backtest lift", _times(backtest.loc["Model", "Lift"]), "top 20% vs all contacts"),
+        ui.kpi_tile("Success rate (top 20%)", _pct(backtest.loc["Model", "Success rate"]), f"random {_pct(backtest.loc['Random', 'Success rate'])}"),
+        ui.kpi_tile("Contacts planned", format_number(len(result.plan)), f"{result.n_users} users · {settings.days} day(s)"),
+        ui.kpi_tile("Rules", f"≤ {settings.capacity}/day", f"≥ {settings.min_gap_days} days apart"),
+    ]
+
+    notes = [ui.message(result.summary, "success")]
+    notes += [ui.message(text, "info") for text in result.warnings]
+
+    plan = result.plan.head(PLAN_ROWS).copy()
+    if not plan.empty:
+        plan["Day"] = pd.to_datetime(plan["Day"]).dt.strftime("%a %Y-%m-%d")
+
+    return html.Div(
+        [
+            html.H2("Results: next-contact plan", className="section-title"),
+            html.Div(tiles, className="kpi-row"),
+            html.Div(notes),
+            ui.section(
+                "Backtest: does prioritising help?",
+                html.Div(
+                    [_backtest_card(result), _importance_card(model)],
+                    className="chart-grid",
+                ),
+                "In each held-out week, the top 20% of that week's actual "
+                "contacts are picked by each strategy; their real success rate "
+                "is compared.",
+            ),
+            ui.section("Backtest table", ui.data_table(result.backtest, page_size=6)),
+            ui.section(
+                "Plan",
+                html.Div(
+                    [
+                        html.Div(
+                            [
+                                html.Button("Download plan (CSV)", id="rec-download-button", n_clicks=0, className="btn"),
+                                dcc.Download(id="rec-download"),
+                            ],
+                            className="target-picker",
+                        ),
+                        ui.data_table(result.summary_table, page_size=12) if not result.summary_table.empty else html.Div(),
+                        html.P(
+                            f"First {min(len(result.plan), PLAN_ROWS)} of {len(result.plan):,} planned contacts "
+                            f"(download for all). Reasons explain each item's predicted success.",
+                            className="card-explanation",
+                        ),
+                        ui.data_table(plan, page_size=12),
+                    ],
+                    className="card",
+                ),
+            ),
+            ui.section(
+                "Success model comparison",
+                html.Div(
+                    [
+                        html.P(model.split.description, className="card-explanation"),
+                        ui.data_table(model.candidates, page_size=6),
+                    ],
+                    className="card",
+                ),
+            ),
+        ]
+    )
+
+
+def _backtest_card(result) -> html.Div:
+    table = result.backtest
+    colors = [SERIES_COLORS[0] if name == "Model" else "#b9b7b1" for name in table["Strategy"]]
+
+    figure = go.Figure(
+        go.Bar(
+            x=table["Strategy"],
+            y=table["Success rate"] * 100,
+            marker_color=colors,
+            text=[f"{value:.0%}" for value in table["Success rate"]],
+            textposition="outside",
+        )
+    )
+    apply_theme(figure, height=360)
+    figure.update_yaxes(title_text="Success rate of picked contacts", ticksuffix="%", range=[0, 105])
+
+    return ui.figure_card(
+        "Success rate of the contacts each strategy picks",
+        figure,
+        "Higher is better. 'Random' is the success rate without prioritisation.",
+    )

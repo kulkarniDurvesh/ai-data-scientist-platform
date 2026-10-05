@@ -13,14 +13,15 @@ Legend: ✅ done · 🔜 next · 📋 planned
 | ✅ 1.5 | Ask box v2 (lists, dates, chart requests, fuzzy IDs/columns, run-together words, friendly refusals) and multi-sheet workbooks (key links, lookups, question routing) |
 | ✅ 2 | Target-aware EDA: target detection, segment rates with significance, feature signal, leakage and future-date checks, panel detection, time-split advice, drift, Markdown report |
 | ✅ 3a | Build model tab: goal picker, proposed setup, role-based features, time-aware train/validation/test, baseline + linear + random forest + gradient boosting, PR-AUC/ROC-AUC/capture/lift or MAE/RMSE/R², permutation importance, per-row reasons, scoring, CSV download, local model registry, background training |
+| ✅ 3b | Recommend tab: interaction-sheet and role detection (user, item, date, outcome, success values, cross-sheet group), point-in-time history features, success model via the 3a builder, daily plan per user within group under capacity and gap rules, backtest vs simple rules and random, CSV download |
 
 ## Model builder (Phase 3)
 
 | Phase | Deliverable | Done when |
 |---|---|---|
 | ✅ 3a | **Build model** tab (see above) | Done: top 20% of the doctor list captures 85% of next-month orderers on the test period (baseline 16%); tests on unrelated synthetic data |
-| 🔜 3b | **Recommendation:** generic user/item/interaction roles, next-best-visit ranking with point-in-time features, configurable rules, daily plan per MR and territory, backtest | Weekly plan respects capacity and visit gaps; backtest shows lift over historical visits and the rule-based script |
-| 📋 3c | **Forecasting:** series detection, trend/seasonality, baselines vs ETS/ARIMA/lag-feature models, walk-forward backtest, intervals | Territory forecast beats seasonal-naive |
+| ✅ 3b | **Recommendation:** generic user/item/interaction roles, next-best-visit ranking with point-in-time features, configurable rules, daily plan per MR and territory, backtest | Weekly plan respects capacity and visit gaps; backtest shows lift over historical visits and the rule-based script |
+| 🔜 3c | **Forecasting:** series detection, trend/seasonality, baselines vs ETS/ARIMA/lag-feature models, walk-forward backtest, intervals | Territory forecast beats seasonal-naive |
 | 📋 3d | **Clustering, segmentation, anomaly detection, correlation:** auto-k clustering with profiles, Isolation Forest with reasons, correlation matrix and redundant features | Planted clusters/outliers recovered in tests |
 
 ## Analysis and service (Phases 4–5)

@@ -10,6 +10,7 @@ Start it with `python app.py` (or `python app.py --file data.xlsx`) and open <ht
 - [Ask tab](#ask-tab)
 - [Target tab](#target-tab)
 - [Build model tab](#build-model-tab)
+- [Recommend tab](#recommend-tab)
 - [My board tab](#my-board-tab)
 - [Troubleshooting](#troubleshooting)
 
@@ -27,7 +28,7 @@ On load, text columns holding numbers or dates are converted automatically. ID-l
 
 The header shows the file name, rows × columns and the current sheet (e.g. "sheet ML_TrainingData (12 of 12)").
 
-**Deep links:** add `?tab=overview`, `auto`, `builder`, `ask`, `target`, `model` or `board` to the URL to open a tab directly.
+**Deep links:** add `?tab=overview`, `auto`, `builder`, `ask`, `target`, `model`, `recommend` or `board` to the URL to open a tab directly.
 
 ## Overview tab
 
@@ -144,6 +145,33 @@ Builds, compares and explains models for a goal you choose.
 | Lift | How many times the average rate the top of the list achieves | > 1 |
 | MAE / RMSE | Average / root-mean-square error for numbers | Lower than the baseline |
 | R² | Share of variation explained | Closer to 1 |
+
+## Recommend tab
+
+Plans who should contact what, and when, from an interaction history (e.g. MR visits to doctors).
+
+1. **Interaction table** — sheets that look like interactions (two repeated keys, a date and an outcome) are listed; the largest is chosen, even if another sheet is selected in the header.
+2. **Roles** (all editable):
+   - *Who acts (user)* and *Contacted (item)* — the two repeated keys; the one with more distinct values is proposed as the item.
+   - *When* — the event date (filled on almost every row, not a monthly snapshot or a follow-up date).
+   - *Outcome* and *Counts as success* — values with positive words are pre-selected; values with negations (*Not Interested*, *Cancelled*) are not.
+   - *Plan within* — a group both sides share, e.g. *Territory (user's and item's)* from the MRs and Doctors sheets, or a column that is constant per user and per item. *No grouping* plans across everything.
+3. **Settings** — working days (weekends skipped), contacts per user per day and minimum days between contacts with the same item. Leave the last two blank to use typical values from the history.
+4. **Build plan** — runs in the background (a few seconds).
+
+### Results
+
+| Part | Meaning |
+|---|---|
+| Tiles | Success model and its test scores, backtest lift and success rate, contacts planned, the rules applied |
+| Backtest | In each held-out week, the top 20% of that week's real contacts by each strategy, and how often they actually succeeded. *Random* = no prioritisation. Only contacts that happened can be judged, so this measures prioritisation, not the full plan |
+| What drives the model | Permutation importance of the history features and item attributes |
+| Plan summary | Users, contacts and average predicted success per group |
+| Plan | Day, user, slot, group, item (and its name), predicted success, days since last contact, reasons. Download the full plan as CSV |
+| Note on filled slots | If fewer contacts are planned than capacity allows, not enough items are due in some groups under the minimum gap |
+
+### How the plan is built
+For each working day, every item is scored as of that day; items contacted (or already planned) within the minimum gap are skipped; within each group the best items are dealt out to the group's users in turn until each reaches the daily capacity. Users only get items of their own group.
 
 ## My board tab
 

@@ -56,6 +56,9 @@ class ModelResult:
     warnings: list[str] = field(default_factory=list)
     seconds: float = 0.0
     summary: str = ""
+    # Predictions of the chosen model on the test rows, made before the
+    # final refit (safe to use for backtests).
+    test_scores: pd.Series | None = None
 
     def predict(self, dataframe: pd.DataFrame) -> np.ndarray:
         X = prepare_frame(dataframe, self.numeric, self.categorical)
@@ -163,9 +166,11 @@ def build_model(
         best_test_model, X_all.loc[split.test], y_all.loc[split.test].to_numpy(), scoring,
     )
 
+    test_scores = pd.Series(predict(best_test_model, split.test), index=split.test)
+
     lift = None
     if task == "classification" and y_all.loc[split.test].nunique() == 2:
-        lift = models.lift_table(y_all.loc[split.test].to_numpy(), predict(best_test_model, split.test))
+        lift = models.lift_table(y_all.loc[split.test].to_numpy(), test_scores.to_numpy())
 
     say("Refitting on all labelled rows")
     labelled = y_all.index[y_all.notna()]
@@ -200,6 +205,7 @@ def build_model(
         categorical=categorical,
         warnings=notes,
         seconds=round(time.time() - started, 1),
+        test_scores=test_scores,
     )
     result.summary = summarize(result)
 
