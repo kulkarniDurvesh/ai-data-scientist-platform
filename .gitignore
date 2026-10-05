@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Data and generated artefacts (keep real or large data out of git)
+data/
+*.xlsx
+*.xls
+*.csv
+*.parquet
+models/
+reports/
+
+# Docs keep their own small generated examples
+!docs/examples/*.md
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Azure / infrastructure outputs
+.azure/
+infra/*.json
