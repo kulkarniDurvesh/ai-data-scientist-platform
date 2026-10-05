@@ -42,6 +42,8 @@ NEGATIVE_WORDS = {
 }
 
 MAX_OUTCOME_VALUES = 20
+# A planning group whose biggest value covers this share of rows is no group.
+MAX_GROUP_SHARE = 0.8
 
 
 @dataclass
@@ -160,6 +162,11 @@ def group_options(
             continue
         values = frame[column]
         if values.dtype.kind in "biufcmM" or not 1 < values.nunique() <= 50:
+            continue
+        # A group splits items into real parts; a column where one value
+        # covers most rows (e.g. a status that is almost always the same)
+        # is constant per key only because it barely varies.
+        if values.value_counts(normalize=True).iloc[0] >= MAX_GROUP_SHARE:
             continue
         purity = _purity(frame, column, user) + _purity(frame, column, item)
         if purity >= 1.6:

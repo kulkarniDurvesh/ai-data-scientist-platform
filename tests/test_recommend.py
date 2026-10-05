@@ -150,8 +150,12 @@ def test_single_table_without_lookup_sheets():
 
     from core.schema_inference import infer_schema
 
+    flat["Channel"] = np.where(np.arange(len(flat)) % 20 == 0, "Phone", "Field")   # 95% one value
     roles = default_roles(flat, infer_schema(flat), {}, [])
     assert roles.user_group == roles.item_group == "Region"
+
+    from core.recommend import group_options
+    assert "Channel" not in [label for label, _, _ in group_options(flat, {}, None, None, roles.user, roles.item)]
 
     result = build_recommender(flat, roles, PlanSettings(days=3, capacity=3))
     assert not result.plan.empty

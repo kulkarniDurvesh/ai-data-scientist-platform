@@ -68,7 +68,7 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 | 3c | Forecasting: series building, rolling backtest of 7 models vs baselines, forecasts with intervals | ✅ Done |
 | 3d | Segments: k-means or bands with readable profiles, anomaly detection with reasons, correlation / redundancy / VIF report | ✅ Done |
 | 4–5 | "Why" analysis tools, KPI layer, FastAPI service | 🔜 Next |
-| 6–8 | LLM layer, RAG with citations, agentic AI (AutoML orchestrator, analyst agent, MCP server) | 📋 Planned |
+| 6–8 | LLM layer and **free-text goal box**, RAG with citations, agentic AI (AutoML orchestrator, analyst agent, MCP server) | 📋 Planned |
 | 9–11 | Azure (Bicep), .NET SFA integration + Manager Agent, evaluation and governance | 📋 Planned |
 
 ## Screenshots
@@ -367,7 +367,7 @@ The suite (80 tests) covers schema inference, data quality, charts, the Ask engi
 | ✅ 3d | Segmentation, anomaly detection, correlation | scikit-learn |
 | **4** | "Why" tools (change decomposition, period comparison, attention ranking) and a KPI definitions layer | pandas |
 | 5 | Python service with typed endpoints | FastAPI, Pydantic, Docker |
-| 6 | LLM layer: one interface for local and cloud models, structured output, LLM fallback for the Ask box, narratives | Ollama, Azure OpenAI |
+| 6 | LLM layer: one interface for local and cloud models, structured output, LLM fallback for the Ask box, narratives — and the **free-text goal box** ([design](#free-text-goals-planned-phase-6)) | Ollama, Azure OpenAI |
 | 7 | RAG over SOP/policy/product documents with citations and retrieval metrics | ChromaDB, Azure AI Search |
 | 8 | Agentic AI: free-text goal → plan → clarifying questions → pipelines; analyst agent; MCP server; multi-agent | Microsoft Agent Framework, MCP |
 | 9 | On-demand Azure deployment, deleted automatically after use | Bicep deployment stacks, Container Apps, Key Vault, managed identity |
@@ -375,6 +375,29 @@ The suite (80 tests) covers schema inference, data quality, charts, the Ask engi
 | 11 | Evaluation in CI, tracing, security, Responsible AI | GitHub Actions, Application Insights, Entra ID |
 
 Details, done-criteria and learning goals per phase: [docs/ROADMAP.md](docs/ROADMAP.md).
+
+### Free-text goals (planned, Phase 6)
+
+Instead of filling in options, the user will type what they want, for example:
+
+> *"Please create a recommendation engine to recommend the next visit to doctors by MR in their own area / territory"*
+
+and the platform will show its interpretation, ask for what is missing, and build it on confirmation:
+
+```
+Free text ─► interpreter (rules first, LLM when uncertain) ─► structured spec
+           ─► validated against the real columns ─► "Here's what I understood" card
+              (each part linked to a column, with confidence) + questions for missing facts
+           ─► confirm ─► the existing, tested pipeline runs
+```
+
+| | Approach | Role |
+|---|---|---|
+| **C** | Hybrid interpreter: rules match the dataset's own names; an LLM handles synonyms, abbreviations and free phrasing ("physicians", "reps", "region"), constrained to the spec's schema | Main path |
+| **D** | Guided questions with detected options to click | Fallback when the text can't be interpreted |
+| **E** | Goals suggested from the data ("Recommend next DoctorId for each MRId within Territory", "Forecast EstimatedRevenue by month") | One-click start |
+
+Why not rules alone: a test on the real workbook showed rules handle wording that reuses the data's names (*doctors → DoctorId, MR → MRId, territory → Territory*) but miss synonyms and abbreviations; a synonym list would be domain-specific and break the generic design. Nothing runs without confirmation, and an LLM never passes a column that doesn't exist.
 
 ## Tech stack
 

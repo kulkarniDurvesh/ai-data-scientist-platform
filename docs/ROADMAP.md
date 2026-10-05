@@ -38,7 +38,7 @@ Legend: ✅ done · 🔜 next · 📋 planned
 
 | Phase | Deliverable |
 |---|---|
-| 📋 6 | LLM layer with one interface for local (Ollama) and Azure OpenAI models; structured output; LLM fallback for the Ask box; dataset and model narratives; evaluation sets |
+| 📋 6 | LLM layer with one interface for local (Ollama) and Azure OpenAI models; structured output; LLM fallback for the Ask box; dataset and model narratives; evaluation sets; **free-text goal box** — approach **C** (hybrid rules + LLM interpreter → structured spec → validation → confirmation card with clarifying questions), **D** (guided questions as fallback) and **E** (goal suggestions generated from the data) |
 | 📋 7 | RAG over synthetic SOP/policy/product documents and project documents; hybrid search; answers with citations; retrieval and groundedness metrics |
 | 📋 8 | Agentic AI: hand-written tool-calling loop → **free-text AutoML orchestrator** (goal → plan → clarifying questions → confirmation → pipelines → explanation), analyst agent, MCP server, small multi-agent setup, agent evaluation |
 
