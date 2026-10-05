@@ -8,6 +8,7 @@ This document explains how the platform is organised today and how the planned A
 - [Ask pipeline](#ask-pipeline)
 - [Multi-sheet linking and routing](#multi-sheet-linking-and-routing)
 - [Target analysis](#target-analysis)
+- [Model builder](#model-builder)
 - [Dashboard state](#dashboard-state)
 - [Key design decisions](#key-design-decisions)
 - [Planned architecture](#planned-architecture)
@@ -54,6 +55,7 @@ flowchart TB
 | `core/date_parts.py` | Detect "March 2025", "Q1", "in 2024"; choose the date column from question words; date-part masks |
 | `core/workbook.py` | Load all sheets, detect key links, build enriched (looked-up) frames |
 | `core/target_analysis.py` | Target detection and the target report (segments, feature signal, leakage, panel, split, drift, Markdown) |
+| `core/modeling/` | Goal-driven model builder: `goal` (GoalSpec), `features` (role-based preprocessing), `split` (time / stratified windows), `models` (candidates, metrics, lift), `explain` (permutation importance, per-row reasons), `builder` (orchestration), `registry` (save / list / load) |
 | `core/NLP/query_parser.py` | Question → `ParsedQuery` (intent, entity, filters, dates, group-by, chart type, notes, unresolved values) |
 | `core/NLP/query_plan.py` | `ParsedQuery` → validated `QueryPlan` |
 | `core/NLP/query_engine.py` | Execute a plan with pandas (aggregates, rankings, distinct lists with attributes, chart tables) |
@@ -130,6 +132,33 @@ flowchart LR
 | Panel | Identifier with repeated values and unique (entity, time) pairs |
 | Leakage | AUC ≥ 0.98, \|correlation\| ≥ 0.98, Cramér's V ≥ 0.9, target copies, future-sounding names, dates after the snapshot period end |
 | Split | Train on the first ~80% of periods, test on the rest; for panels, expected share of entities a random split would leak into both sets |
+
+## Model builder
+
+```mermaid
+flowchart LR
+    G[Goal + target] --> S[GoalSpec<br/>features, exclusions,<br/>time column, entity]
+    S --> P[Role-based preprocessing<br/>impute · scale · one-hot]
+    S --> W[Split<br/>inner-train · validation · test]
+    P & W --> C[Candidates<br/>baseline · linear · RF · GB]
+    C -->|validation| B[Choose best]
+    C -->|test, once each| R[Comparison table]
+    B --> E[Permutation importance<br/>gains · lift]
+    B --> F[Refit on all labelled rows]
+    F --> O[Score latest / unlabelled rows<br/>+ reasons]
+    F --> Reg[(models/ registry)]
+```
+
+| Step | Method |
+|---|---|
+| GoalSpec | Built from the target report: excluded columns (IDs, dates, constants, text, critical leakage), dimensions with > 50 categories dropped; snapshot time column and panel entity reused |
+| Preprocessing | `ColumnTransformer`: numeric → median impute (+ standard scaling for linear models); categorical → "Missing" fill + one-hot with rare levels grouped (< 1%) |
+| Split | Dated: test = last ~20% of periods (same cut as the Target tab), validation = last ~20% of the remaining periods. Undated: stratified (yes/no) or random |
+| Selection | Highest validation PR-AUC (yes/no) or lowest validation MAE (numbers); the baseline is never chosen |
+| Imbalance | `class_weight="balanced"` for logistic regression and gradient boosting, `balanced_subsample` for the random forest |
+| Explanations | Permutation importance on up to 3,000 test rows; per-row reasons from the top columns, using the direction of each column's relation to the predictions and mid-rank percentiles |
+| Scoring | Unlabelled rows if any, else the latest period, else all rows; the final model is refit on all labelled rows |
+| Background jobs | `DatasetBundle.start_model_job` runs `build_model` in a thread; a `dcc.Interval` polls progress messages |
 
 ## Dashboard state
 

@@ -225,7 +225,7 @@ def analyze_target(
 
     if role == "binary":
         kind = "binary"
-        y, positive = _encode_binary(dataframe[target])
+        y, positive = encode_binary(dataframe[target])
     elif role == "measure":
         kind = "numeric"
         y, positive = pd.to_numeric(dataframe[target], errors="coerce"), None
@@ -284,7 +284,7 @@ def analyze_target(
 _POSITIVE_WORDS = {"1", "true", "yes", "y", "t", "positive", "pos"}
 
 
-def _encode_binary(series: pd.Series) -> tuple[pd.Series, Any]:
+def encode_binary(series: pd.Series) -> tuple[pd.Series, Any]:
     """1.0 for the positive class, 0.0 otherwise, NaN where missing."""
 
     values = list(pd.Series(series.dropna().unique()))

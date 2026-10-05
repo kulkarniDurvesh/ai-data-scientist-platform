@@ -32,6 +32,7 @@ from core.NLP.query_engine import QueryEngine
 from core.NLP.query_parser import QueryParser, code_key
 from core.NLP.query_plan import QueryPlanner
 from core.schema_inference import DatasetSchema, infer_schema, name_tokens, same_word
+from core.modeling import GoalSpec, ModelResult, build_model, propose_goal
 from core.target_analysis import TargetReport, analyze_target, detect_targets
 from core.workbook import Workbook
 from visualization import (
@@ -85,6 +86,8 @@ class DatasetBundle:
 
     _workbook: Workbook | None = None
     _target_reports: dict[str, TargetReport] = field(default_factory=dict)
+    _model_jobs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    latest_model: ModelResult | None = None
     _contexts: dict[str, "AskContext"] = field(default_factory=dict)
     _lock: threading.RLock = field(default_factory=threading.RLock)
 
@@ -136,6 +139,49 @@ class DatasetBundle:
                     self.df, self.schema, target,
                 )
             return self._target_reports[target]
+
+    # ------------------------------------------------------------------
+    # Model building (runs in a background thread)
+    # ------------------------------------------------------------------
+
+    def model_goal(self, goal_type: str, target: str) -> GoalSpec:
+        return propose_goal(
+            self.df, self.schema, goal_type, target,
+            report=self.target_report(target),
+        )
+
+    def start_model_job(self, goal_type: str, target: str) -> str:
+        spec = self.model_goal(goal_type, target)
+        job_id = uuid.uuid4().hex[:8]
+        job: dict[str, Any] = {
+            "id": job_id,
+            "status": "running",
+            "messages": [],
+            "result": None,
+            "error": None,
+        }
+
+        with self._lock:
+            self._model_jobs[job_id] = job
+
+        def run() -> None:
+            try:
+                result = build_model(self.df, self.schema, spec, progress=job["messages"].append)
+                job["result"] = result
+                self.latest_model = result
+                job["status"] = "done"
+            except Exception as error:  # noqa: BLE001 - reported in the UI
+                job["error"] = str(error)
+                job["status"] = "error"
+
+        threading.Thread(target=run, daemon=True).start()
+        return job_id
+
+    def model_job(self, job_id: str | None) -> dict[str, Any] | None:
+        if not job_id:
+            return None
+        with self._lock:
+            return self._model_jobs.get(job_id)
 
     # ------------------------------------------------------------------
     # Charts

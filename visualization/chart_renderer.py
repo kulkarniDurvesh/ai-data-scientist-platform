@@ -33,6 +33,53 @@ FONT_FAMILY = (
 )
 
 
+def apply_theme(figure: go.Figure, height: int = 380) -> go.Figure:
+    """The dashboard look for any Plotly figure."""
+
+    figure.update_layout(
+        title=None,
+        template="plotly_white",
+        height=height,
+        margin={"l": 56, "r": 16, "t": 16, "b": 48},
+        font={"family": FONT_FAMILY, "size": 12, "color": TEXT_SECONDARY},
+        paper_bgcolor=SURFACE,
+        plot_bgcolor=SURFACE,
+        hoverlabel={
+            "bgcolor": SURFACE,
+            "bordercolor": GRID_COLOR,
+            "font": {"color": TEXT_PRIMARY, "family": FONT_FAMILY},
+        },
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "left",
+            "x": 0,
+            "title": {"text": ""},
+        },
+        barcornerradius=4,
+        bargap=0.25,
+    )
+
+    figure.update_xaxes(
+        showgrid=False,
+        linecolor=GRID_COLOR,
+        tickfont={"color": TEXT_SECONDARY},
+        title_font={"color": TEXT_SECONDARY},
+        automargin=True,
+    )
+
+    figure.update_yaxes(
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+        tickfont={"color": TEXT_SECONDARY},
+        title_font={"color": TEXT_SECONDARY},
+        automargin=True,
+    )
+
+    return figure
+
+
 class ChartRenderer:
     """
     Renders ChartResult objects into Plotly figures.
@@ -243,46 +290,7 @@ class ChartRenderer:
         chart_result: ChartResult,
     ) -> go.Figure:
 
-        figure.update_layout(
-            title=None,
-            template="plotly_white",
-            height=self.height,
-            margin={"l": 56, "r": 16, "t": 16, "b": 48},
-            font={"family": FONT_FAMILY, "size": 12, "color": TEXT_SECONDARY},
-            paper_bgcolor=SURFACE,
-            plot_bgcolor=SURFACE,
-            hoverlabel={
-                "bgcolor": SURFACE,
-                "bordercolor": GRID_COLOR,
-                "font": {"color": TEXT_PRIMARY, "family": FONT_FAMILY},
-            },
-            legend={
-                "orientation": "h",
-                "yanchor": "bottom",
-                "y": 1.02,
-                "xanchor": "left",
-                "x": 0,
-                "title": {"text": ""},
-            },
-            barcornerradius=4,
-            bargap=0.25,
-        )
-
-        figure.update_xaxes(
-            showgrid=False,
-            linecolor=GRID_COLOR,
-            tickfont={"color": TEXT_SECONDARY},
-            title_font={"color": TEXT_SECONDARY},
-            automargin=True,
-        )
-
-        figure.update_yaxes(
-            gridcolor=GRID_COLOR,
-            zeroline=False,
-            tickfont={"color": TEXT_SECONDARY},
-            title_font={"color": TEXT_SECONDARY},
-            automargin=True,
-        )
+        apply_theme(figure, self.height)
 
         if chart_result.chart_spec.chart_type == "HISTOGRAM":
             figure.update_layout(bargap=0.04)

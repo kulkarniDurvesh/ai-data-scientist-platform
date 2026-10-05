@@ -8,6 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Dash](https://img.shields.io/badge/Dash-Plotly-119DFF?logo=plotly&logoColor=white)
 ![pandas](https://img.shields.io/badge/pandas-2.2-150458?logo=pandas&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-ML-F7931E?logo=scikitlearn&logoColor=white)
 ![SciPy](https://img.shields.io/badge/SciPy-stats-8CAAE6?logo=scipy&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)
 ![Status](https://img.shields.io/badge/status-active%20development-orange)
@@ -44,7 +45,8 @@ Most EDA tools show charts; this project aims to behave like a **data scientist*
 
 1. **understands any table on its own** — column roles, data quality, relationships between sheets, the likely prediction target — with **no hardcoded column names**;
 2. **answers plain-English questions by computing on the data** ("which doctors in Pune North were visited in March 2025?", "pie chart of doctors by specialty");
-3. **prepares a dataset for machine learning** — target rate by segment, feature signal, leakage checks, panel detection and a time-aware train/test split.
+3. **prepares a dataset for machine learning** — target rate by segment, feature signal, leakage checks, panel detection and a time-aware train/test split;
+4. **builds models from a goal** — pick *predict a yes/no outcome*, *rank / prioritise* or *predict a number*; it proposes features, excludes leaky columns, compares models against a baseline on an honest split, explains the winner and scores the latest rows.
 
 The long-term goal (see [Roadmap](#roadmap)): the user states **what they want to achieve** — *predict, forecast, recommend, segment, find anomalies* — and the platform formulates the problem, trains and evaluates suitable models, and explains the results. An LLM acts as the **orchestrator**; tested Python pipelines do the computation, so numbers are never invented.
 
@@ -58,7 +60,8 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 | 1 | Dashboard: overview, data quality, recommended charts, ranked insights, chart builder, Ask box, pin board | ✅ Done |
 | 1.5 | Ask box v2: lists, date filters, chart requests, fuzzy matching · multi-sheet linking and question routing | ✅ Done |
 | 2 | Target-aware EDA: target detection, segment rates, feature signal, leakage checks, time-split advice, report | ✅ Done |
-| 3 | Goal-driven model builder (classification, regression, recommendation, forecasting, clustering, anomalies) | 🔜 Next |
+| 3a | Goal-driven model builder: classification, ranking, regression with explanations, scoring and a model registry | ✅ Done |
+| 3b–3d | Recommendation (daily MR visit plans), forecasting, clustering and anomaly detection | 🔜 Next |
 | 4–5 | "Why" analysis tools, KPI layer, FastAPI service | 📋 Planned |
 | 6–8 | LLM layer, RAG with citations, agentic AI (AutoML orchestrator, analyst agent, MCP server) | 📋 Planned |
 | 9–11 | Azure (Bicep), .NET SFA integration + Manager Agent, evaluation and governance | 📋 Planned |
@@ -80,6 +83,13 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 <summary><b>Target</b> — training-table EDA: imbalance, time split, segments, drift, feature signal (click to expand)</summary>
 
 ![Target tab](docs/images/target.png)
+
+</details>
+
+<details>
+<summary><b>Build model</b> — goal → proposed setup → model comparison, gains, drivers, ranked predictions with reasons (click to expand)</summary>
+
+![Build model tab](docs/images/model.png)
 
 </details>
 
@@ -122,6 +132,16 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 - **Panel detection** (entity × period) and a **time-based split** recommendation, with drift over time and imbalance advice.
 - One-click **Markdown report** ([example](docs/examples/target_report_NextMonthOrder.md)).
 
+### Goal-driven model builder (AutoML, Phase 3a)
+- **"What do you want to build?"** — *rank / prioritise*, *predict a yes/no outcome* or *predict a number*; the target list is filtered to columns that fit the goal.
+- **Proposed setup** reused from the target analysis: features from column roles; IDs, dates, leaky and very-high-cardinality columns left out with reasons.
+- **Honest validation:** time-based train / validation / test windows for dated data (stratified random split otherwise). The model is **chosen on the validation window** and scored **once** on the test period.
+- **Candidates vs a baseline:** logistic / ridge regression, random forest, gradient boosting, and a no-feature baseline.
+- **Metrics in plain words:** PR-AUC, ROC-AUC, top-20% capture and lift, cumulative gains (yes/no); MAE, RMSE, R² (numbers).
+- **Explanations:** permutation importance, plus per-row reasons ("high Order Rate (0.81, top 1%)").
+- **Scores the rows that need a prediction** (unlabelled rows or the latest period), CSV download, and a **local model registry** (`models/`, joblib + JSON metadata).
+- Training runs in the **background**; the page stays usable and shows progress.
+
 ## How it works
 
 ```mermaid
@@ -134,7 +154,8 @@ flowchart LR
     B --> W[Workbook<br/>sheet links + lookups]
     W --> Q[Ask engine<br/>parse → plan → execute → answer]
     C --> T[Target analysis<br/>segments, signal, leakage, split]
-    D & E & F & Q & T --> UI[Dash dashboard]
+    T --> M[Model builder<br/>goal → split → candidates → explain → score]
+    D & E & F & Q & T & M --> UI[Dash dashboard]
 ```
 
 **Ask pipeline:** the question is parsed into intent, entity, filters, dates and chart type using the dataset's own column names and values → a validated query plan → executed with pandas → turned into a sentence, a table and (if useful) a chart. If the selected sheet can't answer, every linked sheet is tried and the best one is used.
@@ -167,7 +188,7 @@ python app.py --file data.xlsx --sheet Visits  # pick an Excel sheet
 python app.py --port 8060 --debug              # other port, Dash dev tools
 ```
 
-Then open <http://127.0.0.1:8050>. Deep links open a tab directly: `?tab=overview|auto|builder|ask|target|board`.
+Then open <http://127.0.0.1:8050>. Deep links open a tab directly: `?tab=overview|auto|builder|ask|target|model|board`.
 
 ## Usage examples
 
@@ -192,6 +213,17 @@ Target analysis of `NextMonthOrder` (excerpt of the [generated report](docs/exam
 
 > Positive rate 7.52% · panel data 500 doctors × 21 months · **warning:** class imbalance (always predicting "no" would score 92.5%) · **split by time:** train Mar 2024–Jul 2025 (8,500 rows), test Aug–Nov 2025 (2,000 rows) — a random split would put ~99% of doctors in both sets · strongest segment: Territory (Solapur 11.8% vs Satara 5.5%, p = 4.4e-13) · strongest features: OrderRate, OrdersPlaced (AUC ≈ 0.89).
 
+Build model, goal *Rank / prioritise*, target `NextMonthOrder` (time split: train Mar 2024–Jul 2025, test Aug–Nov 2025):
+
+| Model | Validation PR-AUC | Test PR-AUC | Test ROC-AUC | Top 20% capture |
+|---|---|---|---|---|
+| Baseline (no features) | 0.073 | 0.077 | 0.500 | 16% |
+| **Logistic regression (chosen)** | **0.442** | 0.405 | 0.922 | 85% |
+| Random forest | 0.398 | 0.488 | 0.926 | 86% |
+| Gradient boosting | 0.395 | 0.494 | 0.911 | 84% |
+
+> The top 20% of the ranked doctor list captures **85% of next-month orderers** (4.3× the average rate). The model is selected on the validation window, not on the test period — which is why the slightly better test scores of the tree models don't change the choice.
+
 ## Project structure
 
 ```
@@ -207,6 +239,7 @@ Target analysis of `NextMonthOrder` (excerpt of the [generated report](docs/exam
 │   ├── date_parts.py          # "March 2025", "Q1" → date filters
 │   ├── workbook.py            # multi-sheet links and lookups
 │   ├── target_analysis.py     # target-aware EDA + Markdown report
+│   ├── modeling/              # goal → features → split → candidates → explain → score → registry
 │   └── NLP/                   # Ask engine: parser → planner → engine → answer
 ├── visualization/             # chart specs, recommender, engine, renderer, validator
 ├── ui/                        # Dash app: layout, callbacks, panels, state, styles
@@ -228,13 +261,14 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-The suite (50 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split) and dashboard rendering.
+The suite (59 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs) and dashboard rendering.
 
 ## Roadmap
 
 | Phase | Plan | Key technologies |
 |---|---|---|
-| **3a–3d** | Goal-driven model builder: classification, regression, **recommendation** (next-best-visit + daily MR plan with backtest), **forecasting**, clustering, anomaly detection | scikit-learn, statsmodels |
+| ✅ 3a | Goal-driven model builder: classification, ranking, regression | scikit-learn |
+| **3b–3d** | **Recommendation** (next-best-visit + daily MR plan with backtest), **forecasting**, clustering, anomaly detection | scikit-learn, statsmodels |
 | 4 | "Why" tools (change decomposition, period comparison, attention ranking) and a KPI definitions layer | pandas |
 | 5 | Python service with typed endpoints | FastAPI, Pydantic, Docker |
 | 6 | LLM layer: one interface for local and cloud models, structured output, LLM fallback for the Ask box, narratives | Ollama, Azure OpenAI |
@@ -250,7 +284,7 @@ Details, done-criteria and learning goals per phase: [docs/ROADMAP.md](docs/ROAD
 
 | Layer | Now | Planned |
 |---|---|---|
-| Analysis | pandas, NumPy, SciPy | scikit-learn, statsmodels |
+| Analysis / ML | pandas, NumPy, SciPy, scikit-learn | statsmodels |
 | UI | Dash, Plotly | Angular (SFA app) |
 | Service | — | FastAPI, Docker |
 | AI | Rule-based NL engine | Ollama / Azure OpenAI, RAG, agents, MCP |

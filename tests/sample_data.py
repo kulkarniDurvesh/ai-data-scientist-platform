@@ -47,3 +47,34 @@ def retail_dataframe(rows: int = 2000, seed: int = 7) -> pd.DataFrame:
         "Phone": rng.integers(9_000_000_000, 9_999_999_999, rows),
         "days_to_ship": rng.integers(-3, 10, rows),
     })
+
+
+def churn_panel(rows_per_store: int = 18, stores: int = 200, seed: int = 11) -> pd.DataFrame:
+    """
+    Stores observed monthly, with planted signal (complaints, region),
+    a planted leak (refund_after_close) and a future-dated column.
+    """
+
+    rng = np.random.default_rng(seed)
+
+    store = np.repeat([f"SC{i:03d}" for i in range(stores)], rows_per_store)
+    period = np.tile(pd.date_range("2023-01-01", periods=rows_per_store, freq="MS"), stores)
+    region = np.repeat(rng.choice(["Coast", "Hills", "Plains"], stores), rows_per_store)
+
+    complaints = rng.poisson(2, len(store))
+    footfall = rng.normal(500, 80, len(store)).round()
+
+    logit = -4.2 + 0.85 * complaints + np.where(region == "Coast", 1.2, 0.0)
+    will_churn = (rng.random(len(store)) < 1 / (1 + np.exp(-logit))).astype(int)
+
+    return pd.DataFrame({
+        "store_code": store,
+        "period": period,
+        "region": region,
+        "is_premium": rng.choice([0, 1], len(store), p=[0.7, 0.3]),
+        "complaints": complaints,
+        "footfall": footfall,
+        "refund_after_close": will_churn * rng.uniform(50, 100, len(store)),
+        "closed_on": period + pd.to_timedelta(45, unit="D"),
+        "will_churn": will_churn,
+    })

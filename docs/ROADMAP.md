@@ -12,13 +12,14 @@ Legend: ✅ done · 🔜 next · 📋 planned
 | ✅ 1 | Dash dashboard: overview and data quality, recommended charts, ranked insights, chart builder, Ask box, pin board |
 | ✅ 1.5 | Ask box v2 (lists, dates, chart requests, fuzzy IDs/columns, run-together words, friendly refusals) and multi-sheet workbooks (key links, lookups, question routing) |
 | ✅ 2 | Target-aware EDA: target detection, segment rates with significance, feature signal, leakage and future-date checks, panel detection, time-split advice, drift, Markdown report |
+| ✅ 3a | Build model tab: goal picker, proposed setup, role-based features, time-aware train/validation/test, baseline + linear + random forest + gradient boosting, PR-AUC/ROC-AUC/capture/lift or MAE/RMSE/R², permutation importance, per-row reasons, scoring, CSV download, local model registry, background training |
 
 ## Model builder (Phase 3)
 
 | Phase | Deliverable | Done when |
 |---|---|---|
-| 🔜 3a | **Build model** tab: goal picker (predict yes/no, predict a number, rank), problem formulation from Phase 2, generic feature pipelines, baseline + candidate models (linear, random forest, gradient boosting), time-aware validation, metrics in plain words, explanations, scoring, local model registry | Doctor next-month-order model beats the baseline on the time-split test period; works unchanged on another dataset |
-| 📋 3b | **Recommendation:** generic user/item/interaction roles, next-best-visit ranking with point-in-time features, configurable rules, daily plan per MR and territory, backtest | Weekly plan respects capacity and visit gaps; backtest shows lift over historical visits and the rule-based script |
+| ✅ 3a | **Build model** tab (see above) | Done: top 20% of the doctor list captures 85% of next-month orderers on the test period (baseline 16%); tests on unrelated synthetic data |
+| 🔜 3b | **Recommendation:** generic user/item/interaction roles, next-best-visit ranking with point-in-time features, configurable rules, daily plan per MR and territory, backtest | Weekly plan respects capacity and visit gaps; backtest shows lift over historical visits and the rule-based script |
 | 📋 3c | **Forecasting:** series detection, trend/seasonality, baselines vs ETS/ARIMA/lag-feature models, walk-forward backtest, intervals | Territory forecast beats seasonal-naive |
 | 📋 3d | **Clustering, segmentation, anomaly detection, correlation:** auto-k clustering with profiles, Isolation Forest with reasons, correlation matrix and redundant features | Planted clusters/outliers recovered in tests |
 

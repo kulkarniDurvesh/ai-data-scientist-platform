@@ -7,6 +7,7 @@ Intelligent EDA dashboard.
         -> Chart builder manual charts with auto defaults
         -> Ask           natural-language questions -> answer + chart
         -> Target        training-table EDA: target rate, leakage, split
+        -> Build model   goal -> trained, compared, explained model + scores
         -> My board      pinned charts from every tab
 """
 
@@ -21,6 +22,7 @@ import pandas as pd
 from dash import ALL, MATCH, Dash, Input, Output, State, ctx, dcc, html, no_update
 
 from core.schema_inference import format_number
+from core.modeling import save_model
 from core.target_analysis import report_markdown
 
 from . import components as ui
@@ -30,7 +32,7 @@ from .state import DatasetBundle, store
 
 ASSETS_FOLDER = str(Path(__file__).parent / "assets")
 
-TAB_VALUES = {"overview", "auto", "builder", "ask", "target", "board"}
+TAB_VALUES = {"overview", "auto", "builder", "ask", "target", "model", "board"}
 
 HIDDEN = {"display": "none"}
 SHEET_PICKER = {"display": "flex", "alignItems": "center", "gap": "8px"}
@@ -192,6 +194,17 @@ def _layout(initial_id: str | None) -> html.Div:
                 ),
             ),
             dcc.Tab(
+                label="Build model",
+                value="model",
+                className="tab",
+                selected_className="tab--selected",
+                children=dcc.Loading(
+                    html.Div(id="model-panel", className="panel"),
+                    type="dot",
+                    color="var(--accent)",
+                ),
+            ),
+            dcc.Tab(
                 id="board-tab",
                 label="My board",
                 value="board",
@@ -209,6 +222,7 @@ def _layout(initial_id: str | None) -> html.Div:
             dcc.Store(id="board", data=[]),
             dcc.Store(id="auto-owner", data=None),
             dcc.Store(id="target-owner", data=None),
+            dcc.Store(id="model-owner", data=None),
             header,
             html.Main(
                 [
@@ -400,6 +414,142 @@ def _register_callbacks(app: Dash) -> None:
         text = report_markdown(report, f"{bundle.name} ({name})" if bundle.sheet else bundle.name)
 
         return dcc.send_string(text, f"target_report_{target}.md")
+
+    # -- Build model ------------------------------------------------------
+
+    @app.callback(
+        Output("model-panel", "children"),
+        Output("model-owner", "data"),
+        Input("tabs", "value"),
+        Input("dataset-id", "data"),
+        State("model-owner", "data"),
+    )
+    def show_model(tab, dataset_id, owner):
+        if tab != "model" or dataset_id is None or owner == dataset_id:
+            return no_update, no_update
+
+        bundle = store.get(dataset_id)
+
+        if bundle is None:
+            return None, None
+
+        return _safe(panels.model_panel, bundle), dataset_id
+
+    @app.callback(
+        Output("model-target", "options"),
+        Output("model-target", "value"),
+        Input("model-goal", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_model_goal(goal, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None or not goal:
+            return no_update, no_update
+
+        return panels.model_target_options(bundle, goal)
+
+    @app.callback(
+        Output("model-setup", "children"),
+        Input("model-target", "value"),
+        State("model-goal", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_model_target(target, goal, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None:
+            return no_update
+
+        return _safe(panels.model_setup_view, bundle, goal, target)
+
+    @app.callback(
+        Output("model-job", "data"),
+        Output("model-poll", "disabled"),
+        Output("model-results", "children"),
+        Input("model-train", "n_clicks"),
+        State("model-goal", "value"),
+        State("model-target", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def train_model(clicks, goal, target, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if not clicks or bundle is None or not goal or not target:
+            return no_update, no_update, no_update
+
+        try:
+            job_id = bundle.start_model_job(goal, target)
+        except ValueError as error:
+            return None, True, ui.message(str(error), "error")
+
+        return job_id, False, panels.model_progress_view(bundle.model_job(job_id))
+
+    @app.callback(
+        Output("model-results", "children", allow_duplicate=True),
+        Output("model-poll", "disabled", allow_duplicate=True),
+        Input("model-poll", "n_intervals"),
+        State("model-job", "data"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def poll_model(_ticks, job_id, dataset_id):
+        bundle = store.get(dataset_id)
+        job = bundle.model_job(job_id) if bundle else None
+
+        if job is None:
+            return no_update, True
+
+        if job["status"] == "running":
+            return panels.model_progress_view(job), False
+
+        if job["status"] == "error":
+            return ui.message(f"Training failed: {job['error']}", "error"), True
+
+        return _safe(panels.model_results_view, job["result"]), True
+
+    @app.callback(
+        Output("model-download", "data"),
+        Input("model-download-button", "n_clicks"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def download_predictions(clicks, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if not clicks or bundle is None or bundle.latest_model is None:
+            return no_update
+
+        result = bundle.latest_model
+        return dcc.send_data_frame(
+            result.scored.to_csv,
+            f"predictions_{result.spec.target}.csv",
+            index=False,
+        )
+
+    @app.callback(
+        Output("model-save-message", "children"),
+        Output("model-saved", "children"),
+        Input("model-save-button", "n_clicks"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def save_trained_model(clicks, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if not clicks or bundle is None or bundle.latest_model is None:
+            return no_update, no_update
+
+        try:
+            name = bundle.name if not bundle.sheet else f"{bundle.name} ({bundle.sheet})"
+            meta = save_model(bundle.latest_model, bundle.df, name)
+        except Exception as error:  # noqa: BLE001 - shown to the user
+            return f"Could not save: {error}", no_update
+
+        return f"Saved as {meta['name']}", panels.saved_models_view()
 
     # -- Chart builder ----------------------------------------------------
 

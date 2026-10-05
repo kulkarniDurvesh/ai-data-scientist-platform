@@ -9,6 +9,7 @@ Start it with `python app.py` (or `python app.py --file data.xlsx`) and open <ht
 - [Chart builder tab](#chart-builder-tab)
 - [Ask tab](#ask-tab)
 - [Target tab](#target-tab)
+- [Build model tab](#build-model-tab)
 - [My board tab](#my-board-tab)
 - [Troubleshooting](#troubleshooting)
 
@@ -26,7 +27,7 @@ On load, text columns holding numbers or dates are converted automatically. ID-l
 
 The header shows the file name, rows × columns and the current sheet (e.g. "sheet ML_TrainingData (12 of 12)").
 
-**Deep links:** add `?tab=overview`, `auto`, `builder`, `ask`, `target` or `board` to the URL to open a tab directly.
+**Deep links:** add `?tab=overview`, `auto`, `builder`, `ask`, `target`, `model` or `board` to the URL to open a tab directly.
 
 ## Overview tab
 
@@ -112,6 +113,37 @@ Analyses a **training table** against the column a model should predict.
 7. **Numeric features:** univariate AUC (0.5 = no signal; further from 0.5 = stronger; *Suspicious* near 0 or 1), direction and class means. For numeric targets: Spearman correlation.
 8. **Not used as features:** IDs, dates, constants and free text, each with the reason.
 9. **Download report:** the full analysis as Markdown ([example](examples/target_report_NextMonthOrder.md)).
+
+## Build model tab
+
+Builds, compares and explains models for a goal you choose.
+
+1. **What do you want to build?**
+   - *Rank / prioritise* — order entities by how likely the outcome is (e.g. which doctors to visit first). Judged by how much of the outcome the top of the list captures.
+   - *Predict a yes/no outcome* — a probability per row.
+   - *Predict a number* — a value per row.
+   Only columns that fit the goal are offered; the most likely target is marked *(suggested)*.
+2. **Proposed setup** — task, features, split method, the column that names rows, the models that will be compared, and the columns **left out** with the reason (IDs, dates, possible leakage, too many categories).
+3. **Train models** — runs in the background (a few seconds on ~10,000 rows); progress steps are shown.
+4. **Results**
+   - *Tiles*: chosen model, test PR-AUC vs baseline, ROC-AUC, top-20% capture and lift (or MAE, improvement and R² for numbers).
+   - *Model comparison*: every candidate's validation and test scores. The model is **chosen on the validation window**; the test period is used once, for reporting — so a model can win even if another scores slightly higher on test.
+   - *Cumulative gains*: share of all positives found as you go down the ranked list, against a random list.
+   - *What drives the model*: permutation importance — how much worse the model gets when a column is shuffled.
+   - *Lift by group*: the test rows in ten equal groups by predicted probability.
+   - *Predictions*: rows that need a prediction (rows without a known target, else the latest period), ranked, with **reasons** — the most important columns where the row is unusual, e.g. *high Order Rate (0.81, top 1%)*. Percentiles are mid-rank, so a value shared by many rows (such as 0) is not shown as extreme.
+5. **Download all predictions (CSV)** and **Save model** (stored in `models/<name>/` with its goal, metrics and a data fingerprint; listed under *Saved models*). The last trained model stays visible after a page refresh.
+
+### How to read the metrics
+
+| Metric | Meaning | Good |
+|---|---|---|
+| PR-AUC | Ranking quality focused on the rare positive class | Well above the baseline (= positive rate) |
+| ROC-AUC | Chance a random positive ranks above a random negative | 0.5 = random, 1 = perfect |
+| Top 20% capture | Share of all positives found in the top 20% of the list | Far above 20% |
+| Lift | How many times the average rate the top of the list achieves | > 1 |
+| MAE / RMSE | Average / root-mean-square error for numbers | Lower than the baseline |
+| R² | Share of variation explained | Closer to 1 |
 
 ## My board tab
 

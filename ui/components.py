@@ -107,6 +107,19 @@ def chart_card(
     return html.Div(children, className="card chart-card")
 
 
+def figure_card(title: str, figure, explanation: str | None = None) -> html.Div:
+    """A card for a ready-made Plotly figure (no pin action)."""
+
+    children = [
+        html.Div(html.H3(title, className="card-title"), className="card-header"),
+    ]
+    if explanation:
+        children.append(html.P(explanation, className="card-explanation"))
+    children.append(dcc.Graph(figure=figure, config=GRAPH_CONFIG, className="card-graph"))
+
+    return html.Div(children, className="card chart-card")
+
+
 def chart_error_card(title: str, error: str) -> html.Div:
     return html.Div(
         [

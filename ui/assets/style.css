@@ -500,3 +500,9 @@ body {
     align-items: flex-end;
     gap: 12px;
 }
+
+.goal-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.goal-option { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
+.goal-description { color: var(--text-muted); }
+.progress-steps { margin: 12px 0 0 18px; color: var(--text-secondary); }
+.save-message { color: var(--text-muted); font-size: 13px; }

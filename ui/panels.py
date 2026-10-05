@@ -8,7 +8,11 @@ import pandas as pd
 from dash import dcc, html
 
 from core.schema_inference import format_number, humanize
+import plotly.graph_objects as go
+
+from core.modeling import GOAL_TYPES, list_models, target_options
 from core.target_analysis import eligible_targets
+from visualization.chart_renderer import SERIES_COLORS, apply_theme
 from visualization.chart_schema import SUPPORTED_AGGREGATIONS, ChartSpec
 
 from . import components as ui
@@ -836,3 +840,331 @@ def _target_excluded(report) -> html.Div:
 
     table = pd.DataFrame(report.excluded, columns=["Column", "Why"])
     return ui.data_table(table, page_size=10)
+
+
+# ----------------------------------------------------------------------
+# Build model (goal-driven model builder)
+# ----------------------------------------------------------------------
+
+# Rows of the scored list shown in the dashboard (the download has all).
+MODEL_SCORED_ROWS = 200
+
+
+def model_panel(bundle: DatasetBundle) -> html.Div:
+    options = {
+        goal: target_options(bundle.df, bundle.schema, goal)
+        for goal in GOAL_TYPES
+    }
+    available = [goal for goal in ("rank", "classify", "regress") if options[goal]]
+
+    if not available:
+        return ui.empty_state(
+            "No column to predict",
+            "Model building needs a two-valued column (yes/no) or a numeric "
+            "column as the target.",
+        )
+
+    goal = available[0]
+
+    goal_picker = dcc.RadioItems(
+        id="model-goal",
+        options=[
+            {
+                "label": html.Span(
+                    [
+                        html.Strong(GOAL_TYPES[key]["label"]),
+                        html.Span(f" — {GOAL_TYPES[key]['description']}", className="goal-description"),
+                    ]
+                ),
+                "value": key,
+                "disabled": not options[key],
+            }
+            for key in ("rank", "classify", "regress")
+        ],
+        value=goal,
+        className="goal-options",
+        labelClassName="goal-option",
+    )
+
+    controls = html.Div(
+        [
+            html.Div(
+                [
+                    html.Label("What to predict", className="field-label"),
+                    dcc.Dropdown(
+                        id="model-target",
+                        options=_target_dropdown(options[goal]),
+                        value=options[goal][0],
+                        clearable=False,
+                        style={"minWidth": "260px"},
+                    ),
+                ],
+                className="field",
+            ),
+            html.Button("Train models", id="model-train", n_clicks=0, className="btn btn-primary"),
+        ],
+        className="target-picker",
+    )
+
+    return html.Div(
+        [
+            dcc.Store(id="model-job"),
+            dcc.Interval(id="model-poll", interval=1000, disabled=True),
+            ui.section(
+                "What do you want to build?",
+                html.Div([goal_picker, controls], className="card"),
+                "Pick a goal and the column to predict. The platform proposes "
+                "the features, excludes IDs, dates and leaky columns, splits "
+                "the data honestly, compares several models against a "
+                "baseline, explains the best one and scores the latest rows.",
+            ),
+            html.Div(model_setup_view(bundle, goal, options[goal][0]), id="model-setup"),
+            # The last trained model stays visible after a page refresh.
+            html.Div(
+                model_results_view(bundle.latest_model) if bundle.latest_model else None,
+                id="model-results",
+            ),
+            ui.section("Saved models", html.Div(saved_models_view(), id="model-saved")),
+        ]
+    )
+
+
+def model_target_options(bundle: DatasetBundle, goal: str) -> tuple[list[dict], str | None]:
+    columns = target_options(bundle.df, bundle.schema, goal)
+    return _target_dropdown(columns), (columns[0] if columns else None)
+
+
+def _target_dropdown(columns: list[str]) -> list[dict[str, str]]:
+    return [
+        {"label": f"{column}  (suggested)" if index == 0 else column, "value": column}
+        for index, column in enumerate(columns)
+    ]
+
+
+def model_setup_view(bundle: DatasetBundle, goal: str | None, target: str | None) -> html.Div:
+    if not goal or not target:
+        return html.Div()
+
+    try:
+        spec = bundle.model_goal(goal, target)
+    except ValueError as error:
+        return ui.message(str(error), "error")
+
+    if spec.time_column:
+        split = (
+            f"By time on {spec.time_column}: earlier periods train the models, "
+            f"the latest ~20% of periods test them."
+        )
+    elif spec.task == "classification":
+        split = "Stratified random split (no date column), keeping the positive rate in every part."
+    else:
+        split = "Random split (no date column)."
+
+    rows = [
+        {"Setting": "Task", "Value": "Classification" if spec.task == "classification" else "Regression"},
+        {"Setting": "Target", "Value": spec.target},
+        {"Setting": "Features used", "Value": f"{len(spec.features)}: " + ", ".join(spec.features)},
+        {"Setting": "Split", "Value": split},
+        {"Setting": "Entity (names rows)", "Value": spec.entity or "row number"},
+        {
+            "Setting": "Models compared",
+            "Value": "Baseline, logistic regression, random forest, gradient boosting"
+            if spec.task == "classification"
+            else "Baseline, ridge regression, random forest, gradient boosting",
+        },
+    ]
+
+    children = [ui.data_table(pd.DataFrame(rows), page_size=10)]
+
+    if spec.excluded:
+        children.append(html.H3("Left out of the model", className="card-title"))
+        children.append(
+            ui.data_table(pd.DataFrame(spec.excluded, columns=["Column", "Why"]), page_size=8)
+        )
+
+    return ui.section("Proposed setup", html.Div(children, className="card"))
+
+
+def model_progress_view(job: dict) -> html.Div:
+    steps = job.get("messages") or ["Starting"]
+    return html.Div(
+        [
+            ui.message("Training in progress — the page stays usable.", "info"),
+            html.Ul([html.Li(step) for step in steps], className="progress-steps"),
+        ],
+        className="card",
+    )
+
+
+def model_results_view(result) -> html.Div:
+    task = result.task
+    best, base = result.test_metrics, result.baseline_metrics
+
+    if task == "classification":
+        share = int(best.get("top_share", 0.2) * 100)
+        tiles = [
+            ui.kpi_tile("Chosen model", result.best_name, f"trained in {result.seconds:.0f}s"),
+            ui.kpi_tile("Test PR-AUC", _fmt(best.get("pr_auc")), f"baseline {_fmt(base.get('pr_auc'))}"),
+            ui.kpi_tile("Test ROC-AUC", _fmt(best.get("roc_auc")), "0.5 = random"),
+            ui.kpi_tile(f"Top {share}% capture", _pct(best.get("recall_at_top")), f"random list: {share}%"),
+            ui.kpi_tile(f"Top {share}% lift", _times(best.get("lift_at_top")), "vs average rate"),
+        ]
+    else:
+        improvement = 1 - best["mae"] / base["mae"] if base.get("mae") else float("nan")
+        tiles = [
+            ui.kpi_tile("Chosen model", result.best_name, f"trained in {result.seconds:.0f}s"),
+            ui.kpi_tile("Test MAE", format_number(best["mae"]), f"baseline {format_number(base['mae'])}"),
+            ui.kpi_tile("Improvement", _pct(improvement), "lower error than baseline"),
+            ui.kpi_tile("Test R²", _fmt(best.get("r2")), "1 = perfect"),
+        ]
+
+    heading = html.H2(
+        f"Results: {GOAL_TYPES[result.spec.goal_type]['label']} — {result.spec.target}",
+        className="section-title",
+    )
+    notes = [ui.message(result.summary, "success")]
+    notes += [ui.message(text, "error") for text in result.warnings]
+
+    charts = [_importance_card(result)]
+    if result.lift is not None:
+        charts.insert(0, _gains_card(result))
+
+    scored = result.scored.head(MODEL_SCORED_ROWS)
+
+    sections = [
+        heading,
+        html.Div(tiles, className="kpi-row"),
+        html.Div(notes),
+        ui.section(
+            "Model comparison",
+            html.Div(
+                [
+                    html.P(result.split.description, className="card-explanation"),
+                    ui.data_table(result.candidates, page_size=6),
+                ],
+                className="card",
+            ),
+            "The chosen model is picked on the validation window; every "
+            "model is then scored once on the test period for comparison.",
+        ),
+        ui.section("How well it ranks and what drives it", html.Div(charts, className="chart-grid")),
+    ]
+
+    if result.lift is not None:
+        sections.append(
+            ui.section(
+                "Lift by group (test period)",
+                ui.data_table(result.lift, page_size=10),
+                "Test rows ranked by predicted probability and cut into ten "
+                "equal groups.",
+            )
+        )
+
+    sections.append(
+        ui.section(
+            "Predictions",
+            html.Div(
+                [
+                    html.P(
+                        f"Scored: {result.scored_description}. Reasons name the "
+                        f"most important columns where the row is unusual.",
+                        className="card-explanation",
+                    ),
+                    html.Div(
+                        [
+                            html.Button("Download all predictions (CSV)", id="model-download-button", n_clicks=0, className="btn"),
+                            html.Button("Save model", id="model-save-button", n_clicks=0, className="btn"),
+                            dcc.Download(id="model-download"),
+                            html.Span(id="model-save-message", className="save-message"),
+                        ],
+                        className="target-picker",
+                    ),
+                    ui.data_table(scored, page_size=10),
+                ],
+                className="card",
+            ),
+        )
+    )
+
+    return html.Div(sections)
+
+
+def _gains_card(result) -> html.Div:
+    lift = result.lift
+    x = [0] + list(lift["Top % of list"])
+    y = [0] + list(lift["Cumulative capture"] * 100)
+
+    figure = go.Figure()
+    figure.add_trace(go.Scatter(x=x, y=y, mode="lines+markers", name=result.best_name, line={"color": SERIES_COLORS[0], "width": 3}))
+    figure.add_trace(go.Scatter(x=[0, 100], y=[0, 100], mode="lines", name="Random list", line={"color": SERIES_COLORS[1], "dash": "dash"}))
+    apply_theme(figure, height=360)
+    figure.update_xaxes(title_text="Top % of ranked list", ticksuffix="%")
+    figure.update_yaxes(title_text="% of positives captured", ticksuffix="%", range=[0, 105])
+
+    return ui.figure_card(
+        "Cumulative gains (test period)",
+        figure,
+        "How many of the actual positives are found when you work down the "
+        "ranked list. The further above the dashed line, the better.",
+    )
+
+
+def _importance_card(result) -> html.Div:
+    table = result.importance.head(12).iloc[::-1]
+
+    figure = go.Figure(
+        go.Bar(
+            x=table["Importance"],
+            y=[humanize(feature) for feature in table["Feature"]],
+            orientation="h",
+            marker_color=SERIES_COLORS[0],
+            error_x={"type": "data", "array": table["Spread"], "color": "#9a9894"},
+        )
+    )
+    apply_theme(figure, height=360)
+    figure.update_xaxes(title_text="Score drop when the column is shuffled")
+
+    return ui.figure_card(
+        "What drives the model",
+        figure,
+        "Permutation importance on the test period: how much the model gets "
+        "worse when one column's values are shuffled.",
+    )
+
+
+def saved_models_view() -> html.Div:
+    saved = list_models()
+
+    if not saved:
+        return ui.message("No saved models yet. Train a model and click Save model.")
+
+    rows = []
+    for meta in saved:
+        metrics = meta.get("test_metrics", {})
+        key = (
+            f"PR-AUC {metrics['pr_auc']:.3f}" if "pr_auc" in metrics
+            else f"MAE {metrics['mae']:.3g}" if "mae" in metrics
+            else ""
+        )
+        rows.append({
+            "Name": meta.get("name"),
+            "Created (UTC)": meta.get("created"),
+            "Dataset": meta.get("dataset"),
+            "Target": meta.get("goal", {}).get("target"),
+            "Model": meta.get("best_model"),
+            "Test metric": key,
+        })
+
+    return ui.data_table(pd.DataFrame(rows), page_size=8)
+
+
+def _fmt(value) -> str:
+    return "–" if value is None or pd.isna(value) else f"{value:.3f}"
+
+
+def _pct(value) -> str:
+    return "–" if value is None or pd.isna(value) else f"{value:.0%}"
+
+
+def _times(value) -> str:
+    return "–" if value is None or pd.isna(value) else f"{value:.1f}×"
