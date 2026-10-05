@@ -158,7 +158,10 @@ Plans who should contact what, and when, from an interaction history (e.g. MR vi
    - *When* — the event date (filled on almost every row, not a monthly snapshot or a follow-up date).
    - *Outcome* and *Counts as success* — values with positive words are pre-selected; values with negations (*Not Interested*, *Cancelled*) are not.
    - *Plan within* — a group both sides share, e.g. *Territory (user's and item's)* from the MRs and Doctors sheets, or a column that is constant per user and per item. *No grouping* plans across everything.
-3. **Settings** — working days (weekends skipped), contacts per user per day and minimum days between contacts with the same item. Leave the last two blank to use typical values from the history.
+3. **Settings**
+   - *Plan for* — next 5 or 10 working days, **next calendar month** (every working day of the month after the last recorded contact) or a custom number of days. *Start from* (optional) moves the plan: with *next calendar month* it plans the whole month of that date.
+   - *Max contacts per user per day* and *Min days between contacts* — leave blank to use typical values from the history.
+   - *Keep each item with one user* (on by default) — every item (e.g. doctor) is assigned to one user of its group (e.g. one MR of the territory): the one who contacted it most, balanced so each user gets a similar share. Off: items are dealt out across all users of the group each day.
 4. **Build plan** — runs in the background (a few seconds).
 
 ### Results
@@ -168,12 +171,13 @@ Plans who should contact what, and when, from an interaction history (e.g. MR vi
 | Tiles | Success model and its test scores, backtest lift and success rate, contacts planned, the rules applied |
 | Backtest | In each held-out week, the top 20% of that week's real contacts by each strategy, and how often they actually succeeded. *Random* = no prioritisation. Only contacts that happened can be judged, so this measures prioritisation, not the full plan |
 | What drives the model | Permutation importance of the history features and item attributes |
-| Plan summary | Users, contacts and average predicted success per group |
-| Plan | Day, user, slot, group, item (and its name), predicted success, days since last contact, reasons. Download the full plan as CSV |
-| Note on filled slots | If fewer contacts are planned than capacity allows, not enough items are due in some groups under the minimum gap |
+| Plan by group / by user | Contacts, distinct items and average predicted success per group and per user (days with contacts per user) |
+| Day-wise plan per user | Choose a user (e.g. an MR) to see every working day of the period: slot, item and name, predicted success, days since last contact, reasons |
+| Download | The full plan for every user as CSV (filter by user in Excel) |
+| Note on filled slots | When fewer contacts are planned than capacity allows, the number of items per user is the limit: each item can be contacted only about once per minimum gap. Contacts are spread evenly over the days instead of crowding the first ones |
 
 ### How the plan is built
-For each working day, every item is scored as of that day; items contacted (or already planned) within the minimum gap are skipped; within each group the best items are dealt out to the group's users in turn until each reaches the daily capacity. Users only get items of their own group.
+Items are first given an owner (when *Keep each item with one user* is on). A daily limit per user spreads the contacts the period allows evenly over its days (never above the maximum per day). Then, for each working day, every item is scored as of that day; items contacted (or already planned) within the minimum gap are skipped; each user gets their best eligible items up to the daily limit. Users only get items of their own group.
 
 ## Forecast tab
 

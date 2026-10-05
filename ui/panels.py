@@ -1179,11 +1179,16 @@ def _times(value) -> str:
 
 NO_GROUP_VALUE = "__none__"
 CURRENT_SHEET = "__current__"
+PLAN_PERIODS = [
+    {"label": "Next 5 working days", "value": "5"},
+    {"label": "Next 10 working days", "value": "10"},
+    {"label": "Next calendar month", "value": "month"},
+    {"label": "Custom number of days", "value": "custom"},
+]
 
 
 def sheet_from_value(value: str | None) -> str | None:
     return None if value in (None, CURRENT_SHEET) else value
-PLAN_ROWS = 300
 
 
 def recommend_panel(bundle: DatasetBundle) -> html.Div:
@@ -1313,16 +1318,42 @@ def recommend_roles_view(bundle: DatasetBundle, sheet: str | None) -> html.Div:
             ),
             html.Div(
                 [
-                    _number("rec-days", "Working days", 5, "5"),
-                    _number("rec-capacity", "Contacts per user per day", None, "auto"),
+                    _dropdown("rec-period", "Plan for", PLAN_PERIODS, "month", width="220px"),
+                    _number("rec-days", "Working days (custom)", 22, "22"),
+                    html.Div(
+                        [
+                            html.Label("Start from (optional)", className="field-label"),
+                            dcc.DatePickerSingle(
+                                id="rec-start",
+                                placeholder="after last contact",
+                                display_format="YYYY-MM-DD",
+                                clearable=True,
+                            ),
+                        ],
+                        className="field",
+                    ),
+                ],
+                className="target-picker",
+            ),
+            html.Div(
+                [
+                    _number("rec-capacity", "Max contacts per user per day", None, "auto"),
                     _number("rec-gap", "Min days between contacts", None, "auto"),
+                    dcc.Checklist(
+                        id="rec-owner",
+                        options=[{"label": " Keep each item with one user (e.g. each doctor with one MR)", "value": "owner"}],
+                        value=["owner"],
+                        className="field",
+                    ),
                     html.Button("Build plan", id="rec-build", n_clicks=0, className="btn btn-primary"),
                 ],
                 className="target-picker",
             ),
             html.P(
-                "Blank capacity and gap are taken from the history (typical "
-                "contacts per user per day, typical days between contacts).",
+                "Next calendar month plans every working day of the month after "
+                "the last recorded contact (or of the start date's month). Users "
+                "only get items of their own group. Blank capacity and gap are "
+                "taken from the history; contacts are spread evenly over the days.",
                 className="card-explanation",
             ),
         ]
@@ -1370,9 +1401,7 @@ def recommend_results_view(result) -> html.Div:
     notes = [ui.message(result.summary, "success")]
     notes += [ui.message(text, "info") for text in result.warnings]
 
-    plan = result.plan.head(PLAN_ROWS).copy()
-    if not plan.empty:
-        plan["Day"] = pd.to_datetime(plan["Day"]).dt.strftime("%a %Y-%m-%d")
+    users = sorted(result.plan[result.roles.user].unique()) if not result.plan.empty else []
 
     return html.Div(
         [
@@ -1401,16 +1430,28 @@ def recommend_results_view(result) -> html.Div:
                             ],
                             className="target-picker",
                         ),
+                        html.H3("By group", className="card-title"),
                         ui.data_table(result.summary_table, page_size=12) if not result.summary_table.empty else html.Div(),
-                        html.P(
-                            f"First {min(len(result.plan), PLAN_ROWS)} of {len(result.plan):,} planned contacts "
-                            f"(download for all). Reasons explain each item's predicted success.",
-                            className="card-explanation",
-                        ),
-                        ui.data_table(plan, page_size=12),
+                        html.H3("By user", className="card-title"),
+                        ui.data_table(result.user_table, page_size=10) if not result.user_table.empty else html.Div(),
                     ],
                     className="card",
                 ),
+            ),
+            ui.section(
+                "Day-wise plan per user",
+                html.Div(
+                    [
+                        html.Div(
+                            [_dropdown("rec-user-view", "User", [{"label": u, "value": u} for u in users], users[0] if users else None, width="220px")],
+                            className="target-picker",
+                        ),
+                        html.Div(recommend_user_plan(result, users[0]) if users else None, id="rec-user-plan"),
+                    ],
+                    className="card",
+                ),
+                "Every working day of the period for one user, with the items to "
+                "contact in order, their predicted success and the reasons.",
             ),
             ui.section(
                 "Success model comparison",
@@ -1422,6 +1463,31 @@ def recommend_results_view(result) -> html.Div:
                     className="card",
                 ),
             ),
+        ]
+    )
+
+
+def recommend_user_plan(result, user) -> html.Div:
+    roles = result.roles
+    plan = result.plan[result.plan[roles.user] == user].copy()
+
+    if plan.empty:
+        return ui.message("No contacts planned for this user.")
+
+    days = sorted(plan["Day"].unique())
+    plan["Day"] = pd.to_datetime(plan["Day"]).dt.strftime("%a %Y-%m-%d")
+    drop = [roles.user] + (["Group"] if "Group" in plan.columns else [])
+    group = plan["Group"].iloc[0] if "Group" in plan.columns else None
+
+    note = (
+        f"{user}{f' ({group})' if group else ''}: {len(plan)} contacts on {len(days)} "
+        f"day(s), {plan[roles.item].nunique()} distinct items."
+    )
+
+    return html.Div(
+        [
+            html.P(note, className="card-explanation"),
+            ui.data_table(plan.drop(columns=drop), page_size=15),
         ]
     )
 

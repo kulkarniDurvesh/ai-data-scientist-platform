@@ -178,3 +178,44 @@ def test_dashboard_tab_and_background_job():
     assert bundle.latest_recommendation is job["result"]
 
     json.dumps(panels.recommend_results_view(job["result"]), cls=plotly.utils.PlotlyJSONEncoder)
+
+
+def test_month_plan_keeps_each_account_with_one_rep_and_spreads_visits(setup):
+    _, workbook, frame, roles = setup
+    result = build_recommender(
+        frame, roles,
+        PlanSettings(period="month", start=pd.Timestamp("2025-03-10"), capacity=5, min_gap_days=7),
+        lookup=workbook.frame,
+    )
+    plan, settings = result.plan, result.settings
+
+    # The whole calendar month of the start date, working days only.
+    assert settings.start == pd.Timestamp("2025-03-03")
+    assert settings.days == 21
+    assert pd.to_datetime(plan["Day"]).dt.month.eq(3).all()
+
+    # One rep per account, same region, visits at least the gap apart.
+    assert (plan.groupby(roles.item)[roles.user].nunique() == 1).all()
+    reps = workbook.frame("Reps").set_index("RepCode")["Region"]
+    accounts = workbook.frame("Accounts").set_index("AccountKey")["Region"]
+    assert (plan[roles.user].map(reps) == plan[roles.item].map(accounts)).all()
+    spacing = plan.sort_values("Day").groupby(roles.item)["Day"].diff().dropna().dt.days
+    assert (spacing >= 7).all()
+
+    # Load is levelled: no rep gets the full capacity early and nothing later.
+    per_day = plan.groupby([roles.user, "Day"]).size()
+    assert per_day.max() <= settings.capacity
+    active_days = plan.groupby(roles.user)["Day"].nunique()
+    assert active_days.min() >= settings.days // 2
+
+    assert set(result.user_table[roles.user]) == set(plan[roles.user])
+
+
+def test_shared_items_can_go_to_any_rep_of_the_region(setup):
+    _, workbook, frame, roles = setup
+    result = build_recommender(
+        frame, roles, PlanSettings(days=10, capacity=4, min_gap_days=3, one_owner=False),
+        lookup=workbook.frame,
+    )
+    assert (result.plan.groupby(roles.item)[roles.user].nunique() > 1).any()
+

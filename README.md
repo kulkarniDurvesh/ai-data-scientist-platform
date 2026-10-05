@@ -172,7 +172,8 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 - **Finds the interaction table** in a workbook (e.g. *Visits*, even when another sheet is selected) and proposes the roles: **user** (MR), **item** (doctor), **date**, **outcome**, **success values** (negations such as *Not Interested* are never pre-selected) and the **planning group** matched across sheets (*MRs Territory* ↔ *Doctors Territory*). Everything is editable.
 - **Point-in-time history features** per contact, computed only from earlier contacts: days since last contact / success, prior contacts and successes, prior success rate, contacts in the last 90 days, last outcome — plus item attributes.
 - **Success model** trained with the Phase 3a builder (time split, candidates vs baseline, explanations).
-- **Daily planner:** for each working day and user, the best-scoring items in the user's group, with a daily capacity and a minimum gap between contacts (both defaulted from history). Every rule is enforced and tested.
+- **Daily planner:** for the next 5 or 10 working days or **the whole next calendar month**, each user gets the best-scoring items **of their own group**, with a maximum per day and a minimum gap between contacts (defaulted from history). **Each item stays with one user** (the in-group user who contacted it most, balanced across the group), and contacts are **spread evenly** over the days. Every rule is enforced and tested.
+- **Day-wise plan per user:** pick an MR and see every working day of the month with the doctors to visit in order, predicted success and reasons; plus totals per user and per group.
 - **Backtest on held-out weeks:** success rate of the contacts each strategy would prioritise — *Model*, *Most overdue first*, *Highest past success rate*, *Random*.
 - Plan with reasons, summary per group, CSV download.
 
@@ -286,7 +287,9 @@ Recommend tab on the *Visits* sheet (success = *Order Placed* or *Interested*, p
 | Most overdue first | 27.9% | 1.05× |
 | Random (no prioritisation) | 26.5% | 1.0× |
 
-> Prioritising by the model nearly triples the success rate of visits. In this synthetic data each doctor's propensity is stable, so the simple *past success rate* rule performs almost as well — the backtest makes that visible instead of hiding it. *Most overdue first* does not help. The plan: 384 visits for 50 MRs, each within their territory, at most 6 per day, at least 12 days between visits to the same doctor.
+> Prioritising by the model nearly triples the success rate of visits. In this synthetic data each doctor's propensity is stable, so the simple *past success rate* rule performs almost as well — the backtest makes that visible instead of hiding it. *Most overdue first* does not help.
+>
+> **Next-month plan (January 2026):** 1,464 visits for 50 MRs over 22 working days; every doctor stays with one MR of their territory; at most 4 visits per MR per day, spread evenly (MR001: 29 visits on 17 days across their 10 doctors); at least 10 days between visits to the same doctor.
 
 Forecast tab, *OrderDetails* sheet, monthly **estimated revenue** split by territory, 3 months ahead (24 months of history):
 
@@ -352,7 +355,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-The suite (78 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage), segmentation (planted groups recovered, planted outliers flagged, redundancy and exact totals found, bands) and dashboard rendering.
+The suite (80 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, month plans with one MR per doctor and levelled load, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage), segmentation (planted groups recovered, planted outliers flagged, redundancy and exact totals found, bands) and dashboard rendering.
 
 ## Roadmap
 

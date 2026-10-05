@@ -186,7 +186,7 @@ flowchart LR
 | History features | Sorted by item and time; cumulative counts shifted by one so the current contact is excluded; 90-day window by binary search; as-of snapshots use only rows strictly before the date |
 | Model | `GoalSpec(goal_type="rank", target="Success")` through `build_model`, so splits, candidates, selection and explanations are shared with Phase 3a |
 | Universes | Items from the item lookup sheet (all doctors, including never-visited ones) plus any extra items seen in interactions; users from the user lookup sheet; groups from lookup columns or per-key modes |
-| Planner | Per day: as-of scoring, gap filter (real contacts and earlier planned days), per-group round-robin up to capacity; weekends skipped |
+| Planner | Period: N working days or a whole calendar month (weekends skipped). Ownership: per group, items sorted by their strongest past contact count and assigned to the in-group user with most contacts, subject to an even quota. Load levelling: daily limit = min(capacity, ⌈items owned × ⌈span / gap⌉ / days⌉). Per day: as-of scoring, gap filter (real contacts and earlier planned days), each user's best eligible items up to the limit (or a per-group round-robin when ownership is off) |
 | Backtest | Uses the chosen model's test-window predictions made **before** the final refit, so no test outcome leaks into the comparison |
 
 ## Forecaster

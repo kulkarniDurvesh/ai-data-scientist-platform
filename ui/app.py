@@ -675,14 +675,17 @@ def _register_callbacks(app: Dash) -> None:
         State("rec-outcome", "value"),
         State("rec-success", "value"),
         State("rec-group", "value"),
+        State("rec-period", "value"),
         State("rec-days", "value"),
+        State("rec-start", "date"),
         State("rec-capacity", "value"),
         State("rec-gap", "value"),
+        State("rec-owner", "value"),
         State("dataset-id", "data"),
         prevent_initial_call=True,
     )
     def build_plan(clicks, sheet, user, item, time_column, outcome, success, group,
-                   days, capacity, gap, dataset_id):
+                   period, days, start, capacity, gap, owner, dataset_id):
         bundle = store.get(dataset_id)
 
         if not clicks or bundle is None:
@@ -700,10 +703,19 @@ def _register_callbacks(app: Dash) -> None:
                 success_values=success or [],
                 group=None if group == panels.NO_GROUP_VALUE else group,
             )
+            if period == "month":
+                plan_days = int(days or 22)
+            elif period == "custom":
+                plan_days = int(days or 5)
+            else:
+                plan_days = int(period or 5)
             settings = PlanSettings(
-                days=int(days or 5),
+                start=pd.Timestamp(start) if start else None,
+                days=plan_days,
                 capacity=int(capacity) if capacity else None,
                 min_gap_days=int(gap) if gap else None,
+                period="month" if period == "month" else "days",
+                one_owner="owner" in (owner or []),
             )
             job_id = bundle.start_recommend_job(sheet, roles, settings)
         except (ValueError, TypeError, KeyError) as error:
@@ -733,6 +745,20 @@ def _register_callbacks(app: Dash) -> None:
             return ui.message(f"Planning failed: {job['error']}", "error"), True
 
         return _safe(panels.recommend_results_view, job["result"]), True
+
+    @app.callback(
+        Output("rec-user-plan", "children"),
+        Input("rec-user-view", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_rec_user(user, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None or bundle.latest_recommendation is None or not user:
+            return no_update
+
+        return _safe(panels.recommend_user_plan, bundle.latest_recommendation, user)
 
     @app.callback(
         Output("rec-download", "data"),

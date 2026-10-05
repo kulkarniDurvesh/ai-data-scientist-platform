@@ -25,7 +25,7 @@ from core.schema_inference import infer_schema, name_tokens
 
 from .backtest import backtest
 from .history import HISTORY_FEATURES, SUCCESS, training_frame
-from .planner import NO_GROUP, PlanSettings, build_plan, plan_summary, resolve_settings
+from .planner import NO_GROUP, PlanSettings, build_plan, plan_summary, resolve_settings, user_summary
 from .roles import InteractionRoles, lookup_column_name
 
 LABEL_TOKENS = {"name", "title", "label"}
@@ -41,6 +41,7 @@ class RecommendResult:
     model: ModelResult
     plan: pd.DataFrame
     summary_table: pd.DataFrame
+    user_table: pd.DataFrame
     backtest: pd.DataFrame
     n_items: int
     n_users: int
@@ -116,6 +117,7 @@ def build_recommender(
         model=model,
         plan=plan,
         summary_table=plan_summary(plan, users, roles),
+        user_table=user_summary(plan, roles),
         backtest=table,
         n_items=len(universe),
         n_users=len(users),
@@ -128,10 +130,15 @@ def build_recommender(
     if plan.empty:
         result.warnings.append("No contacts could be planned: lower the minimum gap or check the groups.")
     elif len(plan) < slots:
+        per_user = len(universe) / max(len(users), 1)
+        span = (plan["Day"].max() - resolved.start).days + 1
+        per_item = max(1, -(-span // resolved.min_gap_days))
         result.warnings.append(
-            f"{len(plan):,} of {slots:,} possible slots are filled: there aren't enough "
-            f"items due in some groups once the {resolved.min_gap_days}-day gap is "
-            f"respected. Lower the gap or the capacity to change this."
+            f"{len(plan):,} contacts planned, while capacity allows {slots:,}. Each user "
+            f"has about {per_user:.0f} items, and an item can be contacted about "
+            f"{per_item} time(s) in this period with a {resolved.min_gap_days}-day gap, "
+            f"so the number of items per user — not capacity — limits the plan. "
+            f"Contacts are spread evenly over the days; lower the gap to contact items more often."
         )
 
     say("Done")
@@ -227,7 +234,10 @@ def _summarize(result: RecommendResult) -> str:
         f"{random['Success rate']:.1%} without prioritisation ({model['Lift']:.1f}× lift) and "
         f"{table.loc[best_rule, 'Success rate']:.1%} for the best simple rule "
         f"({best_rule.lower()}). Plan: {len(result.plan):,} contacts for "
-        f"{result.n_users} users over {settings.days} day(s) from "
-        f"{settings.start:%Y-%m-%d}, up to {settings.capacity} per user per day, "
-        f"at least {settings.min_gap_days} days between contacts with the same item."
+        f"{result.n_users} users over {settings.days} working day(s) from "
+        f"{settings.start:%Y-%m-%d}"
+        + (f" (all of {settings.start:%B %Y})" if settings.period == "month" else "")
+        + f", up to {settings.capacity} per user per day, at least "
+        f"{settings.min_gap_days} days between contacts with the same item"
+        + (", each item kept with one user of its group." if settings.one_owner else ".")
     )
