@@ -17,6 +17,7 @@ Legend: ✅ done · 🔜 next · 📋 planned
 | ✅ 3c | Forecast tab: any measure (or row count) over time, in total and per group; bucketing with incomplete-period detection; naive, seasonal naive, drift, ETS, Theta, ARIMA and global lag-feature gradient boosting; rolling-origin backtest with MAE / sMAPE / MASE; forecasts with approximate 80% / 95% intervals; STL trend and seasonality strength (3+ seasons); CSV download |
 | ✅ 3d | Segments tab: units per row or per key, k-means (silhouette or fixed k) or quantile bands, named profiles, PCA map and heatmap, Isolation Forest anomalies with robust-z reasons, Spearman / redundancy / VIF / Cramér's V report, CSV download |
 | ✅ 4a | Investigate tab: period comparison (previous / last year), drill-down explanation chain with offsetting groups explained, mix / rate for averages, unusual groups, attention ranking with factors, why-questions in the Ask box, clean explain-by options |
+| ✅ 4b | KPIs tab: domain files (roles with per-sheet columns, declarative KPIs with filters and cross-sheet ratios, direction, format), safe evaluator with unavailable reasons and partial-period check, breakdown by role, trend, starter file generator; `domains/pharma_sfa.yaml` with 11 SFA KPIs |
 
 ## Model builder (Phase 3)
 
@@ -32,8 +33,8 @@ Legend: ✅ done · 🔜 next · 📋 planned
 | Phase | Deliverable |
 |---|---|
 | ✅ 4a | "Why" tools: period comparison, change decomposition with drill-down, per-entity anomalies, attention ranking, Investigate tab |
-| 🔜 4b | KPI definitions layer (one config file per domain; the only place domain terms live) |
-| 📋 5 | FastAPI service exposing every capability as typed endpoints; Docker / docker-compose |
+| ✅ 4b | KPI definitions layer (one config file per domain; the only place domain terms live) |
+| 🔜 5 | FastAPI service exposing every capability as typed endpoints; Docker / docker-compose |
 
 ## AI layers (Phases 6–8)
 

@@ -14,7 +14,7 @@ This platform must work on **any** dataset. The pharma SFA workbook is only a te
 - **Derive everything from the data**: column roles (`core/schema_inference.py`), values and cardinalities, links between sheets (`core/workbook.py`), name tokens (`name_tokens`, `key_entity_name`, `same_word`), date grains, statistics.
 - **Generic word lists are allowed only as hints** (English words such as `id`, `code`, `next`, `success`, `not`), never as domain vocabulary. Every value proposed from such a hint must be shown to the user and be overridable.
 - **User-facing text must not contain domain words.** Build nouns from the data (e.g. `key_entity_name("DoctorId")` → "doctor") or use neutral examples ("customer", "account").
-- **Domain specifics** belong only in an optional configuration file (planned: `domains/*.yaml`, Phase 4b), never in code, and the platform must work without it.
+- **Domain specifics** belong only in optional configuration files (`domains/*.yaml`, read by `core/kpi/`), never in code, and the platform must work without them.
 - Comments and docstrings may cite examples from any dataset; mark them as examples.
 - Before finishing any change, search for hardcoded names: `grep -rniE "doctor|territor|mrid|visit|pharma" core ui visualization` should only hit comments and docstrings.
 
@@ -52,8 +52,11 @@ core/                 domain-agnostic engine
   recommend/          roles -> point-in-time history -> success model -> plan -> backtest
   forecast/           series -> models -> rolling backtest -> forecast + intervals
   segment/            units -> correlations -> segments -> anomalies
+  why/                period comparison -> drill-down -> unusual groups -> attention
+  kpi/                domain-file config, safe KPI evaluator, starter generator
 visualization/        chart specs, recommender, engine, renderer, theme
 ui/                   Dash app: layout and callbacks (app.py), tab content (panels.py), state.py
+domains/              optional domain files (*.yaml): the ONLY place domain terms may appear
 tests/                pytest, synthetic data only
 docs/                 user guide, architecture, roadmap, images, examples
 ```

@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 import numpy as np
 
 from core.forecast import DEFAULT_HORIZON, ROW_COUNT, TOTAL, default_aggregation, suggest_freq
+from core.kpi import format_value
 from core.modeling import GOAL_TYPES, list_models, target_options
 from core.target_analysis import eligible_targets
 from visualization.chart_renderer import SERIES_COLORS, apply_theme
@@ -2217,12 +2218,15 @@ def investigate_results_view(result) -> html.Div:
 MAX_BREAKDOWN_ROWS = 15
 
 
-def _period_label(stamp, spec) -> str:
-    if spec.freq == "M":
+def _period_label(stamp, spec_or_freq) -> str:
+    """Readable period: 'Dec 2025', 'Q4 2025', 'week of 2025-12-01'."""
+
+    freq = getattr(spec_or_freq, "freq", spec_or_freq)
+    if freq == "M":
         return f"{stamp:%b %Y}"
-    if spec.freq == "Q":
+    if freq == "Q":
         return f"Q{stamp.quarter} {stamp.year}"
-    if spec.freq == "W":
+    if freq == "W":
         return f"week of {stamp:%Y-%m-%d}"
     return f"{stamp:%Y-%m-%d}"
 
@@ -2273,3 +2277,176 @@ def _waterfall_card(result, item) -> html.Div:
         figure,
         "Blue raised the total, red lowered it.",
     )
+
+
+# ----------------------------------------------------------------------
+# KPIs (domain files)
+# ----------------------------------------------------------------------
+
+NO_GROUP_ROLE = "__none__"
+
+
+def kpi_panel(bundle: DatasetBundle) -> html.Div:
+    domains = bundle.kpi_domains()
+    usable = [d for d in domains if d["usable"]]
+
+    starter = html.Div(
+        [
+            html.Button("Download a starter file for this dataset", id="kpi-starter-button", n_clicks=0, className="btn"),
+            dcc.Download(id="kpi-starter"),
+        ],
+        className="target-picker",
+    )
+
+    intro = (
+        "Business KPIs defined once in a domain file (domains/*.yaml) and computed "
+        "the same way everywhere: per period, by role, with their definitions. "
+        "Domain files are optional configuration; the rest of the platform never needs them."
+    )
+
+    if not usable:
+        return html.Div([
+            ui.section("KPIs", html.Div([
+                ui.message("No domain file in the domains folder fits this dataset. Download a starter "
+                           "file built from the detected columns, edit it, and save it in the domains folder.", "info"),
+                starter,
+            ], className="card"), intro),
+        ])
+
+    first = usable[0]
+    controls = html.Div(
+        [
+            html.Div(
+                [
+                    _dropdown("kpi-domain", "Domain file",
+                              [{"label": f"{d['name']} ({d['usable']} of {d['total']} KPIs available)", "value": d["path"]} for d in usable],
+                              first["path"], width="320px"),
+                    _dropdown("kpi-freq", "Period", [o for o in FREQ_OPTIONS if o["value"] != "D"], "M", width="140px"),
+                    _dropdown("kpi-group", "Break down by", [{"label": "No breakdown", "value": NO_GROUP_ROLE}], NO_GROUP_ROLE, width="220px"),
+                ],
+                className="target-picker",
+            ),
+            starter,
+        ]
+    )
+
+    return html.Div(
+        [
+            ui.section("KPIs", html.Div(controls, className="card"), intro),
+            dcc.Loading(html.Div(kpi_results_view(bundle, first["path"], "M", None), id="kpi-results"),
+                        type="dot", color="var(--accent)"),
+        ]
+    )
+
+
+def kpi_group_options(bundle: DatasetBundle, path: str) -> list[dict]:
+    _, roles = bundle.kpi_report(path, "M", None)
+    return [{"label": "No breakdown", "value": NO_GROUP_ROLE}] + [
+        {"label": role.replace("_", " ").title(), "value": role} for role in roles
+    ]
+
+
+def kpi_results_view(bundle: DatasetBundle, path: str, freq: str, group_role: str | None) -> html.Div:
+    try:
+        report, _ = bundle.kpi_report(path, freq, group_role)
+    except (ValueError, OSError) as error:
+        return ui.message(f"Could not use this domain file: {error}", "error")
+
+    summary = report.summary
+    tiles = []
+    for row in summary.itertuples():
+        change = ""
+        if row.Change is not None and not pd.isna(row.Change):
+            change = _kpi_change(row.Change, row.Format)
+            change += f" vs previous · {row.Status}" if row.Status else " vs previous"
+        tiles.append(ui.kpi_tile(row.KPI, format_value(row.Current, row.Format), change or None))
+
+    period = ""
+    if report.current_period is not None:
+        period = f"Current period: {_period_label(report.current_period, freq)}"
+        if report.previous_period is not None:
+            period += f" · compared with {_period_label(report.previous_period, freq)}"
+
+    table = summary.drop(columns=["_id"]).copy()
+    for column in ("Current", "Previous"):
+        table[column] = [format_value(value, fmt) for value, fmt in zip(table[column], table["Format"])]
+    table["Change"] = [
+        "" if value is None or pd.isna(value) else _kpi_change(value, fmt)
+        for value, fmt in zip(summary["Change"], summary["Format"])
+    ]
+    table = table.drop(columns=["Format"])
+
+    labels = list(summary["KPI"])
+    sections = [
+        html.P(period + f" · computed {report.computed_at}", className="card-explanation"),
+        html.Div(tiles, className="kpi-row"),
+        ui.section(
+            "Over time",
+            html.Div(
+                [
+                    html.Div([_dropdown("kpi-trend-select", "KPI", [{"label": k, "value": k} for k in labels], labels[0], width="260px")],
+                             className="target-picker"),
+                    html.Div(kpi_trend_card(report, labels[0], summary), id="kpi-trend"),
+                ],
+                className="card",
+            ),
+        ),
+        ui.section(
+            "Definitions and values",
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Button("Download KPIs (CSV)", id="kpi-download-button", n_clicks=0, className="btn"),
+                            dcc.Download(id="kpi-download"),
+                        ],
+                        className="target-picker",
+                    ),
+                    ui.data_table(table, page_size=15),
+                ],
+                className="card",
+            ),
+            "Every number comes from the formula in the Definition column; roles "
+            "(e.g. status, outcome) are mapped to columns in the domain file.",
+        ),
+    ]
+
+    if report.by_group is not None:
+        grouped = report.by_group.copy()
+        formats = dict(zip(summary["KPI"], summary["Format"]))
+        for column in grouped.columns[1:]:
+            grouped[column] = [format_value(v, formats.get(column, "number")) for v in grouped[column]]
+        sections.append(ui.section(f"By {group_role.replace('_', ' ')} (current period)", ui.data_table(grouped, page_size=15)))
+
+    if len(report.unavailable):
+        sections.append(ui.section(
+            "Not available here",
+            ui.data_table(report.unavailable, page_size=10),
+            "KPIs whose columns or roles are missing for this dataset or breakdown.",
+        ))
+
+    return html.Div(sections)
+
+
+def _kpi_change(value: float, fmt: str) -> str:
+    """'+1.4 pts' for rates, '+9' for counts, '+10,375' for large values."""
+
+    if fmt == "percent":
+        return f"{value * 100:+.1f} pts"
+    if float(value).is_integer() or abs(value) >= 100:
+        return f"{value:+,.0f}"
+    return f"{value:+,.2f}"
+
+
+def kpi_trend_card(report, label: str, summary) -> html.Div:
+    trend = report.trend[report.trend["KPI"] == label]
+    fmt = dict(zip(summary["KPI"], summary["Format"])).get(label, "number")
+    if trend.empty:
+        return ui.message("This KPI has no date, so it has no trend.")
+
+    values = trend["Value"] * (100 if fmt == "percent" else 1)
+    figure = go.Figure(go.Scatter(x=trend["Period"], y=values, mode="lines+markers",
+                                  line={"color": SERIES_COLORS[0], "width": 3}))
+    apply_theme(figure, height=320)
+    figure.update_yaxes(title_text=label + (" (%)" if fmt == "percent" else ""), ticksuffix="%" if fmt == "percent" else "")
+    return ui.figure_card(label, figure, dict(zip(summary["KPI"], summary["Definition"])).get(label, ""))

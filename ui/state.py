@@ -43,6 +43,7 @@ from core.forecast import (
 from core.modeling import GoalSpec, ModelResult, build_model, propose_goal
 from core.segment import SegmentResult, SegmentSpec, build_segments, feature_options, unit_options
 from core.why import ChangeSpec, Investigation, attention_options, drill_options, investigate
+from core.kpi import DEFAULT_FOLDER as DOMAIN_FOLDER, KpiReport, discover, evaluate_domain, load_domain, starter_yaml
 from core.why.change import all_breakdowns, explain_change
 from core.date_parts import choose_date_column
 from core.forecast import ROW_COUNT, suggest_freq
@@ -287,6 +288,30 @@ class DatasetBundle:
             self.latest_segments_sheet = sheet
 
         return self._run_job(work, done)
+
+    # ------------------------------------------------------------------
+    # KPIs from domain files
+    # ------------------------------------------------------------------
+
+    def kpi_table(self, table: str | None) -> pd.DataFrame | None:
+        """A sheet (with lookup columns) by name; None means the loaded dataset."""
+
+        if table is None:
+            return self._ask_context(self.sheet).df
+        if table in self.sheets or (self.sheet is None and table == self.name):
+            return self._ask_context(table).df
+        return None
+
+    def kpi_domains(self) -> list[dict]:
+        return discover(DOMAIN_FOLDER, self.kpi_table)
+
+    def kpi_report(self, path: str, freq: str = "M", group_role: str | None = None) -> tuple[KpiReport, list[str]]:
+        config = load_domain(path)
+        return evaluate_domain(config, self.kpi_table, freq, group_role), config.group_roles()
+
+    def kpi_starter(self) -> str:
+        frame, schema, sources, _ = self.interaction_context(self.sheet)
+        return starter_yaml(frame, schema, sources, self.sheet, self.name)
 
     # ------------------------------------------------------------------
     # Investigate ("why did it change?")

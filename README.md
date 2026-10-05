@@ -50,7 +50,8 @@ Most EDA tools show charts; this project aims to behave like a **data scientist*
 5. **recommends next contacts** — learns which interactions succeed from point-in-time history and plans each user's next working days within their group (e.g. daily doctor visits per MR per territory), with a backtest against simple rules;
 6. **forecasts** any measure over time, in total and per group, choosing among statistical and machine-learning models with a rolling backtest against naive baselines, with forecast intervals;
 7. **segments and screens** — groups units into named segments, flags unusual ones with reasons, and reports correlated, redundant and collinear features;
-8. **explains why a number changed** — compares periods, follows the group that explains most of the movement down a few levels, flags unusual groups and ranks what needs attention (also from the Ask box: *"why did revenue increase?"*).
+8. **explains why a number changed** — compares periods, follows the group that explains most of the movement down a few levels, flags unusual groups and ranks what needs attention (also from the Ask box: *"why did revenue increase?"*);
+9. **computes business KPIs** defined once in an optional domain file (`domains/*.yaml`) — the only place domain terms live — per period and per role, with their definitions.
 
 The long-term goal (see [Roadmap](#roadmap)): the user states **what they want to achieve** — *predict, forecast, recommend, segment, find anomalies* — and the platform formulates the problem, trains and evaluates suitable models, and explains the results. An LLM acts as the **orchestrator**; tested Python pipelines do the computation, so numbers are never invented.
 
@@ -69,7 +70,8 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 | 3c | Forecasting: series building, rolling backtest of 7 models vs baselines, forecasts with intervals | ✅ Done |
 | 3d | Segments: k-means or bands with readable profiles, anomaly detection with reasons, correlation / redundancy / VIF report | ✅ Done |
 | 4a | Investigate: period comparison, drill-down explanation (sums and mix / rate for averages), unusual groups, attention ranking, why-questions in Ask | ✅ Done |
-| 4b–5 | KPI definitions layer, FastAPI service | 🔜 Next |
+| 4b | KPIs: optional domain files with roles and safe KPI formulas, per period and per role, starter file generator | ✅ Done |
+| 5 | FastAPI service | 🔜 Next |
 | 6–8 | LLM layer and **free-text goal box**, RAG with citations, agentic AI (AutoML orchestrator, analyst agent, MCP server) | 📋 Planned |
 | 9–11 | Azure (Bicep), .NET SFA integration + Manager Agent, evaluation and governance | 📋 Planned |
 
@@ -125,6 +127,13 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 <summary><b>Investigate</b> — why a number changed: explanation chain, trend, waterfall, contributions, attention ranking (click to expand)</summary>
 
 ![Investigate tab](docs/images/investigate.png)
+
+</details>
+
+<details>
+<summary><b>KPIs</b> — business KPIs from a domain file: current vs previous, trend, breakdown by role, definitions (click to expand)</summary>
+
+![KPIs tab](docs/images/kpis.png)
 
 </details>
 
@@ -210,6 +219,13 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 - **Explain-by choices are clean:** keys and their names, e-mails or codes that map one-to-one are offered once; times of day are skipped.
 - **Ask box:** *"why did … change / drop / increase?"* returns the explanation chain and the top contributions.
 
+### KPIs from a domain file (Phase 4b)
+- **Domain files** (`domains/*.yaml`) map **roles** to columns (a role can use a different column per sheet: *territory* is `Doctors Territory` in Visits and `Territory` in Doctors) and define **KPIs** declaratively: `count / sum / mean / min / max / distinct`, `where` filters (value, list, `gt / ge / lt / le / ne`), and numerator ÷ denominator — even across sheets (*coverage = doctors visited ÷ active doctors*). Format and direction (higher or lower is better) per KPI.
+- **Safe and honest:** no code is evaluated; KPIs whose columns or roles are missing are listed as *not available* with the reason; a partly covered last period is left out.
+- **KPIs tab:** domain files that fit the dataset (with how many KPIs are computable), tiles with change and better / worse, trend per KPI, breakdown by any role, definitions and rows used, CSV download.
+- **Starter file:** generated from any dataset's detected keys, dates, measures and small categories — a quick start for a new domain.
+- `domains/pharma_sfa.yaml` defines 11 SFA KPIs (visit completion, cancellation, order conversion, positive outcomes, follow-ups, coverage, revenue, orders, average order value…). It is configuration, so the code stays generic.
+
 ## How it works
 
 ```mermaid
@@ -228,7 +244,9 @@ flowchart LR
     W --> FC[Forecaster<br/>series → backtest → forecast + intervals]
     W --> SG[Segmenter<br/>units → segments · anomalies · correlations]
     W --> WY[Investigator<br/>compare → drill-down → attention]
-    D & E & F & Q & T & M & R & FC & SG & WY --> UI[Dash dashboard]
+    DF[(domains/*.yaml)] --> KP[KPI evaluator<br/>roles → formulas → per period / role]
+    W --> KP
+    D & E & F & Q & T & M & R & FC & SG & WY & KP --> UI[Dash dashboard]
 ```
 
 **Ask pipeline:** the question is parsed into intent, entity, filters, dates and chart type using the dataset's own column names and values → a validated query plan → executed with pandas → turned into a sentence, a table and (if useful) a chart. If the selected sheet can't answer, every linked sheet is tried and the best one is used.
@@ -261,7 +279,7 @@ python app.py --file data.xlsx --sheet Visits  # pick an Excel sheet
 python app.py --port 8060 --debug              # other port, Dash dev tools
 ```
 
-Then open <http://127.0.0.1:8050>. Deep links open a tab directly: `?tab=overview|auto|builder|ask|target|model|recommend|forecast|segments|why|board`.
+Then open <http://127.0.0.1:8050>. Deep links open a tab directly: `?tab=overview|auto|builder|ask|target|model|recommend|forecast|segments|why|kpi|board`.
 
 ## Usage examples
 
@@ -340,6 +358,18 @@ Investigate tab, *OrderDetails*, monthly estimated revenue, December vs November
 
 On data with a planted cause (one rep's sales of one product collapsing in one region), the chain goes *product → region → rep* and ends at the exact cause (−98%).
 
+KPIs tab with `domains/pharma_sfa.yaml`, December vs November 2025:
+
+| KPI | Dec 2025 | Change | |
+|---|---|---|---|
+| Visit completion | 92.4% | −1.4 pts | worse |
+| Cancellation rate | 7.6% | +1.4 pts | worse (lower is better) |
+| Order conversion | 7.8% | +1.1 pts | better |
+| Doctor coverage | 77.6% | −0.2 pts | worse |
+| Revenue | 87,100 | +10,375 | better |
+
+> Broken down by MR, *Doctor coverage* is reported as not available — the Doctors sheet has no MR column — instead of a wrong number.
+
 ## Project structure
 
 ```
@@ -360,9 +390,11 @@ On data with a planted cause (one rep's sales of one product collapsing in one r
 │   ├── forecast/              # series → models → rolling backtest → forecast with intervals
 │   ├── segment/               # units → correlations → segments with profiles → anomalies with reasons
 │   ├── why/                   # period comparison → drill-down explanation → unusual groups → attention
+│   ├── kpi/                   # domain files: config model, safe evaluator, starter generator
 │   └── NLP/                   # Ask engine: parser → planner → engine → answer
 ├── visualization/             # chart specs, recommender, engine, renderer, validator
 ├── ui/                        # Dash app: layout, callbacks, panels, state, styles
+├── domains/                   # optional domain files (roles + KPI formulas); the only place for domain terms
 ├── tests/                     # pytest suite on synthetic, non-pharma datasets
 └── docs/                      # architecture, user guide, roadmap, screenshots, examples
 ```
@@ -381,7 +413,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-The suite (88 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, month plans with one MR per doctor and levelled load, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage), segmentation (planted groups recovered, planted outliers flagged, redundancy and exact totals found, bands), why-analysis (planted cause found, contributions add up, pure mix shift separated, collapsing entity ranked first, why-questions) and dashboard rendering.
+The suite (95 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, month plans with one MR per doctor and levelled load, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage), segmentation (planted groups recovered, planted outliers flagged, redundancy and exact totals found, bands), why-analysis (planted cause found, contributions add up, pure mix shift separated, collapsing entity ranked first, why-questions), KPIs (hand-checked values, cross-table ratios, unavailable reasons, partial periods, starter files) and dashboard rendering.
 
 ## Roadmap
 
@@ -392,7 +424,7 @@ The suite (88 tests) covers schema inference, data quality, charts, the Ask engi
 | ✅ 3c | Forecasting with rolling backtests and intervals | statsmodels, scikit-learn |
 | ✅ 3d | Segmentation, anomaly detection, correlation | scikit-learn |
 | ✅ 4a | "Why" tools: period comparison, drill-down, unusual groups, attention ranking | pandas |
-| **4b** | KPI definitions layer (optional domain config) | PyYAML |
+| ✅ 4b | KPI definitions layer (optional domain config) | PyYAML |
 | 5 | Python service with typed endpoints | FastAPI, Pydantic, Docker |
 | 6 | LLM layer: one interface for local and cloud models, structured output, LLM fallback for the Ask box, narratives — and the **free-text goal box** ([design](#free-text-goals-planned-phase-6)) | Ollama, Azure OpenAI |
 | 7 | RAG over SOP/policy/product documents with citations and retrieval metrics | ChromaDB, Azure AI Search |
@@ -430,7 +462,7 @@ Why not rules alone: a test on the real workbook showed rules handle wording tha
 
 | Layer | Now | Planned |
 |---|---|---|
-| Analysis / ML | pandas, NumPy, SciPy, scikit-learn, statsmodels | – |
+| Analysis / ML | pandas, NumPy, SciPy, scikit-learn, statsmodels, PyYAML | – |
 | UI | Dash, Plotly | Angular (SFA app) |
 | Service | — | FastAPI, Docker |
 | AI | Rule-based NL engine | Ollama / Azure OpenAI, RAG, agents, MCP |

@@ -1,0 +1,154 @@
+"""
+Domain files: discover the ones that fit a dataset, or start a new one.
+
+    discover   list domain files in a folder with how many of their KPIs
+               can be computed on the current dataset
+    starter    write a draft domain file from any dataset's detected roles:
+               key columns become roles, the event date becomes 'date', and
+               simple KPIs are proposed (row counts, totals and averages of
+               row-level measures, shares of the values of small categories)
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+from typing import Callable
+
+import pandas as pd
+import yaml
+
+from core.forecast.series import date_options, measure_options
+from core.schema_inference import DatasetSchema, key_entity_name, name_tokens
+
+from .config import ConfigError, DomainConfig, load_domain
+
+DEFAULT_FOLDER = Path(__file__).resolve().parents[2] / "domains"
+MAX_SHARE_KPIS = 6
+
+
+def discover(folder: Path | str, tables: Callable[[str | None], "pd.DataFrame | None"]) -> list[dict]:
+    """Domain files with the share of their KPIs the dataset supports."""
+
+    from .evaluate import _prepare
+
+    found = []
+    for path in sorted(Path(folder).glob("*.y*ml")):
+        try:
+            config = load_domain(path)
+        except (ConfigError, yaml.YAMLError, OSError) as error:
+            found.append({"path": str(path), "name": path.stem, "usable": 0, "total": 0, "error": str(error)})
+            continue
+
+        usable = 0
+        for kpi in config.kpis:
+            try:
+                _prepare(kpi, kpi.numerator, config, tables, "M", None)
+                if kpi.denominator is not None:
+                    _prepare(kpi, kpi.denominator, config, tables, "M", None)
+                usable += 1
+            except (ConfigError, KeyError, ValueError, TypeError):
+                continue
+        found.append({"path": str(path), "name": config.name, "usable": usable, "total": len(config.kpis), "error": ""})
+
+    return sorted(found, key=lambda item: -item["usable"])
+
+
+def starter_yaml(
+    frame: pd.DataFrame,
+    schema: DatasetSchema,
+    sources: dict[str, str],
+    table: str | None,
+    dataset_name: str,
+) -> str:
+    """A draft domain file for one table, built only from what was detected."""
+
+    roles: dict[str, object] = {}
+
+    keys = [
+        column for column in schema.identifiers
+        if column not in sources and 1 < frame[column].nunique() < len(frame) * 0.5
+    ]
+    for column in keys:
+        roles[_role_name(key_entity_name(column) or column)] = column
+
+    groups = [
+        column for column in frame.columns
+        if schema.role_of(column) in {"dimension", "binary"} and 2 <= frame[column].nunique() <= 30
+    ]
+    for column in groups[:4]:
+        roles.setdefault(_role_name(column), column)
+
+    dates = date_options(frame)
+    if dates:
+        roles["date"] = {table: dates[0]} if table else dates[0]
+
+    kpis = [{
+        "id": "rows",
+        "label": f"Number of {table or 'rows'}",
+        "table": table,
+        "value": {"count": "rows"},
+        "format": "number",
+        "direction": "up",
+        "description": "Rows in the period. Rename to what a row is (e.g. orders, contacts).",
+    }]
+
+    for column in [m for m in measure_options(frame, schema, sources) if m != "__rows__"][:3]:
+        if column in sources:
+            continue
+        base = _role_name(column)
+        kpis.append({"id": f"total_{base}", "label": f"Total {column}", "table": table,
+                     "value": {"sum": column}, "format": "number", "direction": "up"})
+        kpis.append({"id": f"average_{base}", "label": f"Average {column}", "table": table,
+                     "value": {"mean": column}, "format": "number", "direction": "up"})
+
+    shares = 0
+    for column in groups:
+        values = frame[column].dropna().value_counts()
+        if not 2 <= len(values) <= 6:
+            continue
+        for value in values.index:
+            if shares >= MAX_SHARE_KPIS:
+                break
+            label = str(value)
+            kpis.append({
+                "id": f"share_{_role_name(column)}_{_role_name(label)}",
+                "label": f"Share {column} = {label}",
+                "table": table,
+                "numerator": {"count": "rows", "where": {column: _plain(value)}},
+                "denominator": {"count": "rows"},
+                "format": "percent",
+                "direction": "up",
+                "description": "Check the direction: is a higher share good or bad?",
+            })
+            shares += 1
+
+    for kpi in kpis:
+        if not kpi["table"]:
+            kpi.pop("table")
+
+    document = {
+        "name": f"Starter for {dataset_name}",
+        "description": "Generated from the detected columns. Rename roles and KPIs, "
+                       "fix filters and directions, then save it in the domains folder.",
+        "roles": roles,
+        "kpis": kpis,
+    }
+    header = (
+        "# Starter domain file generated by the AI Data Scientist Platform.\n"
+        "# Roles map business names to columns (a role can map to a different\n"
+        "# column per table). KPIs: count / sum / mean / min / max / distinct,\n"
+        "# optional 'where' filters, and numerator / denominator for rates.\n"
+    )
+    return header + yaml.safe_dump(document, sort_keys=False, allow_unicode=True)
+
+
+def _role_name(text) -> str:
+    tokens = name_tokens(text) or re.findall(r"[a-z0-9]+", str(text).lower())
+    return "_".join(tokens) or "value"
+
+
+def _plain(value):
+    if hasattr(value, "item"):
+        return value.item()
+    return value

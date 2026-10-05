@@ -13,6 +13,7 @@ This document explains how the platform is organised today and how the planned A
 - [Forecaster](#forecaster)
 - [Segmenter](#segmenter)
 - [Investigator](#investigator)
+- [KPI layer](#kpi-layer)
 - [Dashboard state](#dashboard-state)
 - [Key design decisions](#key-design-decisions)
 - [Planned architecture](#planned-architecture)
@@ -59,6 +60,7 @@ flowchart TB
 | `core/date_parts.py` | Detect "March 2025", "Q1", "in 2024"; choose the date column from question words; date-part masks |
 | `core/workbook.py` | Load all sheets, detect key links, build enriched (looked-up) frames |
 | `core/target_analysis.py` | Target detection and the target report (segments, feature signal, leakage, panel, split, drift, Markdown) |
+| `core/kpi/` | KPI layer: `config` (YAML schema, validation with readable errors, roles with per-table columns), `evaluate` (filters, aggregations, ratios, periods, breakdowns, unavailable reasons, partial-period check), `starter` (discover fitting domain files, generate a starter file) |
 | `core/why/` | Why-analysis: `change` (periods, comparison, breakdown with mix / rate, drill-down chain and narrative), `attention` (group history, unusual groups, attention ranking), `engine` (explain-by and attention options, orchestration) |
 | `core/segment/` | Segmentation: `units` (rows or per-key aggregation, feature choice), `correlation` (Spearman, redundant pairs, VIF, Cramér's V), `cluster` (preparation, k-means with silhouette, bands, profiles and names, PCA map), `anomaly` (Isolation Forest, robust-z reasons), `engine` (orchestration) |
 | `core/forecast/` | Forecasting: `series` (spec, bucketing, gap filling, incomplete-period detection, defaults), `models` (naive, seasonal naive, drift, ETS, Theta, ARIMA, global gradient boosting on lags), `evaluate` (rolling-origin backtest, MAE / sMAPE / MASE, interval widths), `engine` (orchestration, STL diagnostics) |
@@ -258,6 +260,28 @@ flowchart LR
 | Unusual groups | Robust z of the current value against the group's previous 12 periods (median, 1.4826·MAD; standard deviation if MAD is 0) |
 | Attention score | 40 × min(fall %, 1) + 30 × min(\|z\| / 4, 1) + 20 × min(5 × falling trend, 1), scaled by the group's relative size, + 10 × share; only the "bad" direction counts |
 | Ask integration | Questions starting with "why": measure via the parser (numeric column or counted entity), date named in the question or the main event date, all explain-by options; the first sheet that has the measure answers |
+
+## KPI layer
+
+```mermaid
+flowchart LR
+    Y[(domains/*.yaml)] --> C[Config<br/>validate · roles per table]
+    T[Sheets with lookup columns] --> E
+    C --> E[Evaluator<br/>where filters → aggregate →<br/>numerator ÷ denominator]
+    E --> P[Per period<br/>current vs previous]
+    E --> G[Per role group]
+    E --> U[Unavailable + reason]
+    P & G & U --> O[Tiles · trend · tables · CSV]
+```
+
+| Step | Method |
+|---|---|
+| Roles | `roles.<name>` is a column, or a sheet → column mapping (with `*` as default); anything that isn't a role is a column name |
+| Aggregates | `count` (rows / non-null), `sum`, `mean`, `min`, `max`, `distinct`; each aggregate can use its own sheet (cross-sheet ratios) |
+| Filters | Equality, membership (`[a, b]`) and comparisons (`gt ge lt le ne eq`); no expressions are evaluated |
+| Periods | From the `date` role of each sheet; sheets without one (e.g. a master list of doctors) are not filtered by period; a last period covered < 80% by event data is dropped |
+| Breakdown | Both numerator and denominator are grouped by the role's column in their own sheet; missing role → KPI unavailable for that breakdown |
+| Starter file | Repeated keys → roles named after their entity, event date → `date`, small categories → roles; KPIs: row count, totals and averages of row-level measures, shares of small categories |
 
 ## Dashboard state
 

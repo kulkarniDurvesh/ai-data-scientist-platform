@@ -12,6 +12,7 @@ Intelligent EDA dashboard.
         -> Forecast      measure over time: backtested models + forecast intervals
         -> Segments      clusters with profiles, unusual records, correlations
         -> Investigate   why a number changed: drill-down, unusual groups, attention
+        -> KPIs          business KPIs from an optional domain file (domains/*.yaml)
         -> My board      pinned charts from every tab
 """
 
@@ -40,7 +41,7 @@ from .state import DatasetBundle, store
 
 ASSETS_FOLDER = str(Path(__file__).parent / "assets")
 
-TAB_VALUES = {"overview", "auto", "builder", "ask", "target", "model", "recommend", "forecast", "segments", "why", "board"}
+TAB_VALUES = {"overview", "auto", "builder", "ask", "target", "model", "recommend", "forecast", "segments", "why", "kpi", "board"}
 
 HIDDEN = {"display": "none"}
 SHEET_PICKER = {"display": "flex", "alignItems": "center", "gap": "8px"}
@@ -257,6 +258,17 @@ def _layout(initial_id: str | None) -> html.Div:
                 ),
             ),
             dcc.Tab(
+                label="KPIs",
+                value="kpi",
+                className="tab",
+                selected_className="tab--selected",
+                children=dcc.Loading(
+                    html.Div(id="kpi-panel", className="panel"),
+                    type="dot",
+                    color="var(--accent)",
+                ),
+            ),
+            dcc.Tab(
                 id="board-tab",
                 label="My board",
                 value="board",
@@ -279,6 +291,7 @@ def _layout(initial_id: str | None) -> html.Div:
             dcc.Store(id="forecast-owner", data=None),
             dcc.Store(id="segments-owner", data=None),
             dcc.Store(id="why-owner", data=None),
+            dcc.Store(id="kpi-owner", data=None),
             header,
             html.Main(
                 [
@@ -1202,6 +1215,111 @@ def _register_callbacks(app: Dash) -> None:
             return no_update
 
         return dcc.send_data_frame(bundle.latest_why.attention.to_csv, "attention_ranking.csv", index=False)
+
+    # -- KPIs ---------------------------------------------------------------
+
+    @app.callback(
+        Output("kpi-panel", "children"),
+        Output("kpi-owner", "data"),
+        Input("tabs", "value"),
+        Input("dataset-id", "data"),
+        State("kpi-owner", "data"),
+    )
+    def show_kpis(tab, dataset_id, owner):
+        if tab != "kpi" or dataset_id is None or owner == dataset_id:
+            return no_update, no_update
+
+        bundle = store.get(dataset_id)
+
+        if bundle is None:
+            return None, None
+
+        return _safe(panels.kpi_panel, bundle), dataset_id
+
+    @app.callback(
+        Output("kpi-group", "options"),
+        Output("kpi-group", "value"),
+        Input("kpi-domain", "value"),
+        State("dataset-id", "data"),
+    )
+    def change_kpi_domain(path, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None or not path:
+            return no_update, no_update
+
+        try:
+            return panels.kpi_group_options(bundle, path), panels.NO_GROUP_ROLE
+        except (ValueError, OSError):
+            return no_update, no_update
+
+    @app.callback(
+        Output("kpi-results", "children"),
+        Input("kpi-domain", "value"),
+        Input("kpi-freq", "value"),
+        Input("kpi-group", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_kpi_view(path, freq, group, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None or not path:
+            return no_update
+
+        role = None if group in (None, panels.NO_GROUP_ROLE) else group
+        return _safe(panels.kpi_results_view, bundle, path, freq or "M", role)
+
+    @app.callback(
+        Output("kpi-trend", "children"),
+        Input("kpi-trend-select", "value"),
+        State("kpi-domain", "value"),
+        State("kpi-freq", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_kpi_trend(label, path, freq, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None or not path or not label:
+            return no_update
+
+        report, _ = bundle.kpi_report(path, freq or "M", None)
+        return _safe(panels.kpi_trend_card, report, label, report.summary)
+
+    @app.callback(
+        Output("kpi-download", "data"),
+        Input("kpi-download-button", "n_clicks"),
+        State("kpi-domain", "value"),
+        State("kpi-freq", "value"),
+        State("kpi-group", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def download_kpis(clicks, path, freq, group, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if not clicks or bundle is None or not path:
+            return no_update
+
+        role = None if group in (None, panels.NO_GROUP_ROLE) else group
+        report, _ = bundle.kpi_report(path, freq or "M", role)
+        table = report.by_group if report.by_group is not None else report.summary.drop(columns=["_id"])
+        return dcc.send_data_frame(table.to_csv, "kpis.csv", index=False)
+
+    @app.callback(
+        Output("kpi-starter", "data"),
+        Input("kpi-starter-button", "n_clicks"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def download_starter(clicks, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if not clicks or bundle is None:
+            return no_update
+
+        return dcc.send_string(bundle.kpi_starter(), "starter_domain.yaml")
 
     # -- Chart builder ----------------------------------------------------
 

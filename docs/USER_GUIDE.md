@@ -14,6 +14,7 @@ Start it with `python app.py` (or `python app.py --file data.xlsx`) and open <ht
 - [Forecast tab](#forecast-tab)
 - [Segments tab](#segments-tab)
 - [Investigate tab](#investigate-tab)
+- [KPIs tab](#kpis-tab)
 - [My board tab](#my-board-tab)
 - [Troubleshooting](#troubleshooting)
 
@@ -31,7 +32,7 @@ On load, text columns holding numbers or dates are converted automatically. ID-l
 
 The header shows the file name, rows × columns and the current sheet (e.g. "sheet ML_TrainingData (12 of 12)").
 
-**Deep links:** add `?tab=overview`, `auto`, `builder`, `ask`, `target`, `model`, `recommend`, `forecast`, `segments`, `why` or `board` to the URL to open a tab directly.
+**Deep links:** add `?tab=overview`, `auto`, `builder`, `ask`, `target`, `model`, `recommend`, `forecast`, `segments`, `why`, `kpi` or `board` to the URL to open a tab directly.
 
 ## Overview tab
 
@@ -257,6 +258,53 @@ Explains why a number changed between two periods.
 | Unusual this period | Groups whose current value is far from their own history (robust z ≥ 2.5) |
 
 You can also type **"why did … change / drop / increase?"** in the Ask tab: the measure and date are taken from your words (or the main date column) and the answer is the explanation chain with the top contributions.
+
+## KPIs tab
+
+Business KPIs defined once in a **domain file** and computed the same way every time.
+
+1. **Domain file** — files in the `domains/` folder that fit the dataset, with how many of their KPIs can be computed. If none fits, **Download a starter file** builds one from the detected columns; edit it and save it in `domains/`.
+2. **Period** — week, month or quarter. The current period is the latest one the data fully covers; it is compared with the one before.
+3. **Break down by** — any role in the file (e.g. rep, territory, specialty).
+
+### Results
+
+| Part | Meaning |
+|---|---|
+| Tiles | Each KPI's current value and change vs the previous period (*pts* for rates), with *better* / *worse* from the KPI's direction |
+| Over time | The selected KPI per period, with its definition |
+| Definitions and values | Current, previous, change, direction, the formula, rows used and description; download as CSV |
+| By <role> | Every KPI per group for the current period |
+| Not available here | KPIs whose columns or roles are missing for this dataset or breakdown, with the reason |
+
+### Writing a domain file
+
+```yaml
+name: Sales field force
+roles:
+  rep: RepCode                 # same column in every sheet
+  region:                      # or one column per sheet
+    Contacts: Rep Region
+    Accounts: Region
+  date:
+    Contacts: ContactedOn
+  result:
+    Contacts: Result
+kpis:
+  - id: win_rate
+    label: Win rate
+    table: Contacts
+    numerator:   {count: rows, where: {result: Won}}
+    denominator: {count: rows, where: {result: [Won, Lost]}}
+    format: percent            # percent | number | currency
+    direction: up              # up = higher is better, down = lower is better
+  - id: coverage
+    table: Contacts
+    numerator:   {distinct: account}
+    denominator: {count: rows, table: Accounts, where: {Active: true}}
+```
+
+Aggregations: `count` (rows or non-empty values of a column), `sum`, `mean`, `min`, `max`, `distinct`. Filters: a value, a list of values, or `{gt|ge|lt|le|ne|eq: value}`. A KPI without a denominator uses `value:`. Nothing in the file is run as code.
 
 ## My board tab
 

@@ -1,0 +1,120 @@
+# Domain file for the pharma Sales Force Automation (SFA) workbook.
+#
+# This is configuration, not code: it is the only place where pharma terms
+# (MR, doctor, territory, visit outcomes) appear. The platform works without
+# it; with it, the KPIs tab computes these business KPIs the same way every
+# time, per period and per role (MR, territory, specialty).
+
+name: Pharma SFA
+description: Field-force KPIs for medical representatives (MRs) visiting doctors.
+
+roles:
+  rep: MRId
+  customer: DoctorId
+  territory:
+    Visits: Doctors Territory
+    OrderDetails: Territory
+    Doctors: Territory
+  specialty: Specialty
+  date:
+    Visits: VisitDate
+    OrderDetails: VisitDate
+  status:
+    Visits: VisitType
+  outcome:
+    Visits: Outcome
+
+kpis:
+  - id: visits
+    label: Visits
+    table: Visits
+    value: {count: rows}
+    format: number
+    direction: up
+    description: All recorded visits, completed or cancelled.
+
+  - id: visit_completion
+    label: Visit completion
+    table: Visits
+    numerator: {count: rows, where: {status: Completed}}
+    denominator: {count: rows}
+    format: percent
+    direction: up
+    description: Completed visits as a share of all visits.
+
+  - id: cancellation_rate
+    label: Cancellation rate
+    table: Visits
+    numerator: {count: rows, where: {status: Cancelled}}
+    denominator: {count: rows}
+    format: percent
+    direction: down
+    description: Cancelled visits as a share of all visits.
+
+  - id: order_conversion
+    label: Order conversion
+    table: Visits
+    numerator: {count: rows, where: {outcome: Order Placed}}
+    denominator: {count: rows, where: {status: Completed}}
+    format: percent
+    direction: up
+    description: Completed visits that ended with an order.
+
+  - id: interest_rate
+    label: Positive outcome rate
+    table: Visits
+    numerator: {count: rows, where: {outcome: [Interested, Order Placed]}}
+    denominator: {count: rows, where: {status: Completed}}
+    format: percent
+    direction: up
+    description: Completed visits with interest or an order.
+
+  - id: follow_up_rate
+    label: Follow-up required
+    table: Visits
+    numerator: {count: rows, where: {outcome: Follow-up Required}}
+    denominator: {count: rows, where: {status: Completed}}
+    format: percent
+    direction: down
+    description: Completed visits that still need a follow-up.
+
+  - id: doctors_visited
+    label: Doctors visited
+    table: Visits
+    value: {distinct: customer, where: {status: Completed}}
+    format: number
+    direction: up
+    description: Distinct doctors with at least one completed visit.
+
+  - id: coverage
+    label: Doctor coverage
+    table: Visits
+    numerator: {distinct: customer, where: {status: Completed}}
+    denominator: {count: rows, table: Doctors, where: {IsActive: true}}
+    format: percent
+    direction: up
+    description: Active doctors with a completed visit, as a share of all active doctors.
+
+  - id: revenue
+    label: Revenue
+    table: OrderDetails
+    value: {sum: EstimatedRevenue}
+    format: currency
+    direction: up
+    description: Estimated revenue of orders in the period.
+
+  - id: orders
+    label: Orders
+    table: OrderDetails
+    value: {count: rows}
+    format: number
+    direction: up
+    description: Number of order lines.
+
+  - id: average_order_value
+    label: Average order value
+    table: OrderDetails
+    value: {mean: EstimatedRevenue}
+    format: currency
+    direction: up
+    description: Average estimated revenue per order line.
