@@ -12,7 +12,7 @@ import pandas as pd
 from core.NLP.query_parser import QueryParser
 from core.schema_inference import infer_schema
 from tests.sample_data import retail_dataframe
-from ui.state import DatasetBundle, DatasetStore
+from service.session import DatasetBundle, DatasetStore
 
 
 def _bundle(df=None):

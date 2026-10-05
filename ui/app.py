@@ -36,7 +36,7 @@ from core.target_analysis import report_markdown
 
 from . import components as ui
 from . import panels
-from .state import DatasetBundle, store
+from service.session import DatasetBundle, store
 
 
 ASSETS_FOLDER = str(Path(__file__).parent / "assets")

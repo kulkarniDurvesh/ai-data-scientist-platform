@@ -16,7 +16,7 @@ from sklearn.metrics import adjusted_rand_score
 
 from core.schema_inference import infer_schema
 from core.segment import SegmentSpec, build_segments, build_units
-from ui.state import DatasetBundle
+from service.session import DatasetBundle
 
 OUTLIERS = ["CU900", "CU901", "CU902", "CU903", "CU904"]
 

@@ -17,7 +17,7 @@ import yaml
 
 from core.kpi import ConfigError, evaluate_domain, load_domain, parse_domain, starter_yaml
 from core.schema_inference import infer_schema
-from ui.state import DatasetBundle
+from service.session import DatasetBundle
 
 DOMAIN = """
 name: Sales test

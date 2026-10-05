@@ -13,7 +13,7 @@ import plotly
 
 from core.schema_inference import infer_schema
 from core.target_analysis import analyze_target, detect_targets, report_markdown
-from ui.state import DatasetBundle
+from service.session import DatasetBundle
 
 
 def _panel(rows_per_store: int = 18, stores: int = 120, seed: int = 11) -> pd.DataFrame:

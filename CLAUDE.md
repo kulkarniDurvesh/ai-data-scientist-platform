@@ -24,7 +24,8 @@ This platform must work on **any** dataset. The pharma SFA workbook is only a te
 - **Honest ML**: leakage checks, time-aware splits for dated or panel data, a baseline in every comparison, model selection on validation data only, warnings when nothing beats the baseline.
 - **Refuse rather than mislead**: unknown values, impossible requests or missing data produce a clear message, never silent wrong results (e.g. never return every row when a filter isn't understood).
 - **Dashboard-only runtime**: no `print` statements; errors are shown in the UI (`_safe`, `ui.message`). Long work (training, planning, forecasting) runs as a background job (`DatasetBundle._run_job`) with progress messages.
-- Match the surrounding style: dataclasses for results, small pure functions in `core/`, no analysis logic in `ui/`, `core/` never imports `ui/`.
+- Match the surrounding style: dataclasses for results, small pure functions in `core/`, no analysis logic in `ui/` or `api/` (both go through `service/session.py`), `core/` never imports `ui/`, `api/` or `service/`.
+- New capabilities get an API endpoint too (Pydantic models in `api/schemas.py`, JSON view in `api/results.py`) and a test in `tests/test_api.py`.
 
 ## Tests
 
@@ -55,7 +56,9 @@ core/                 domain-agnostic engine
   why/                period comparison -> drill-down -> unusual groups -> attention
   kpi/                domain-file config, safe KPI evaluator, starter generator
 visualization/        chart specs, recommender, engine, renderer, theme
-ui/                   Dash app: layout and callbacks (app.py), tab content (panels.py), state.py
+service/              session layer (session.py) shared by the dashboard and the API
+ui/                   Dash app: layout and callbacks (app.py), tab content (panels.py)
+api/                  FastAPI service: endpoints (main.py), Pydantic schemas, result views
 domains/              optional domain files (*.yaml): the ONLY place domain terms may appear
 tests/                pytest, synthetic data only
 docs/                 user guide, architecture, roadmap, images, examples
@@ -66,5 +69,7 @@ docs/                 user guide, architecture, roadmap, images, examples
 ```
 pip install -r requirements.txt -r requirements-dev.txt
 python app.py --file path/to/data.xlsx      # http://127.0.0.1:8050, ?tab=<name> deep links
+python -m api                               # http://127.0.0.1:8000/docs
+docker compose up --build                   # API :8000 + dashboard :8050
 python -m pytest -q
 ```

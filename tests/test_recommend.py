@@ -18,7 +18,7 @@ from core.recommend import PlanSettings, build_recommender, default_roles
 from core.recommend.history import training_frame
 from core.recommend.roles import InteractionRoles
 from core.workbook import Workbook
-from ui.state import DatasetStore
+from service.session import DatasetStore
 
 SHEETS = ["Contacts", "Reps", "Accounts"]
 

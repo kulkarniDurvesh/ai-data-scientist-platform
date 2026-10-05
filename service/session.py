@@ -1,10 +1,10 @@
 """
-Server-side dataset state for the dashboard.
+Session state shared by the dashboard (ui/) and the HTTP API (api/).
 
-Dash stores live in the browser as JSON, so the dataframe and every
-derived artefact (schema, quality report, recommendations, insights,
-NL query objects, chart registry) stay here. The browser only holds the
-dataset id and the ids of pinned charts.
+Each loaded dataset is a DatasetBundle holding the dataframe and every
+derived artefact (schema, quality report, insights, NL query objects,
+chart registry, trained models, plans, forecasts, segments, background
+jobs). Clients only hold the dataset id. Nothing here depends on Dash.
 """
 
 from __future__ import annotations

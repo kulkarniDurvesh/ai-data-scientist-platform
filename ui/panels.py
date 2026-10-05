@@ -20,7 +20,7 @@ from visualization.chart_renderer import SERIES_COLORS, apply_theme
 from visualization.chart_schema import SUPPORTED_AGGREGATIONS, ChartSpec
 
 from . import components as ui
-from .state import DatasetBundle
+from service.session import DatasetBundle
 from .suggestions import suggest_questions
 
 

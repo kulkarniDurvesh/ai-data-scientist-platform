@@ -15,7 +15,7 @@ import pytest
 from core.modeling import build_model, list_models, load_model, propose_goal, save_model, target_options
 from core.schema_inference import infer_schema
 from tests.sample_data import churn_panel, retail_dataframe
-from ui.state import DatasetBundle
+from service.session import DatasetBundle
 
 
 def _setup(df, goal, target):

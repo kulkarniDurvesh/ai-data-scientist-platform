@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from core.workbook import Workbook
-from ui.state import DatasetStore
+from service.session import DatasetStore
 
 
 def _workbook_bytes() -> bytes:

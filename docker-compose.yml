@@ -1,0 +1,36 @@
+# Local stack: the HTTP API on :8000 and the dashboard on :8050.
+#   docker compose up --build
+# The two services keep datasets in memory separately (upload to each one);
+# saved models are shared through the "models" volume.
+
+services:
+  api:
+    build: .
+    image: ai-data-scientist:latest
+    ports:
+      - "8000:8000"
+    environment:
+      AIDS_API_KEY: ${AIDS_API_KEY:-}
+      AIDS_CORS_ORIGINS: ${AIDS_CORS_ORIGINS:-*}
+    volumes:
+      - models:/app/models
+      - ./domains:/app/domains:ro
+
+  dashboard:
+    image: ai-data-scientist:latest
+    depends_on:
+      - api
+    command: ["python", "app.py", "--host", "0.0.0.0", "--port", "8050"]
+    ports:
+      - "8050:8050"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8050/')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+    volumes:
+      - models:/app/models
+      - ./domains:/app/domains:ro
+
+volumes:
+  models:

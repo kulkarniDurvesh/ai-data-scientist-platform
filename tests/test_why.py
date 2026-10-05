@@ -17,7 +17,7 @@ from core.schema_inference import infer_schema
 from core.why import ChangeSpec, drill_options, investigate
 from core.why.change import breakdown, choose_periods, explain_change
 from tests.sample_data import retail_dataframe
-from ui.state import DatasetBundle
+from service.session import DatasetBundle
 
 REPS = {"North": ["R1", "R2"], "South": ["R3", "R4"], "West": ["R5", "R6", "R7"]}
 

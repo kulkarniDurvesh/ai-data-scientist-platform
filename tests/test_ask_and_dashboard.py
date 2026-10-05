@@ -5,7 +5,7 @@ import plotly
 from core.schema_inference import infer_schema
 from tests.sample_data import retail_dataframe
 from ui.app import create_app
-from ui.state import DatasetBundle
+from service.session import DatasetBundle
 from ui.suggestions import suggest_questions
 
 

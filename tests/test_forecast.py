@@ -23,7 +23,7 @@ from core.forecast import (
     suggest_freq,
 )
 from core.schema_inference import infer_schema
-from ui.state import DatasetBundle
+from service.session import DatasetBundle
 
 REGIONS = {"North": 1.0, "South": 0.6, "Lakes": 0.4}
 

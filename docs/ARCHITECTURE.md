@@ -26,7 +26,7 @@ This document explains how the platform is organised today and how the planned A
 flowchart TB
     subgraph UI["ui/ — Dash dashboard"]
         tabs[Tabs: Overview · Auto insights · Chart builder · Ask · Target · Board]
-        state[state.py — DatasetBundle / DatasetStore<br/>server-side cache per dataset]
+        state[service/session.py — DatasetBundle / DatasetStore<br/>shared by UI and API]
     end
     subgraph VIZ["visualization/ — charts"]
         spec[ChartSpec] --> engine[ChartEngine<br/>filter, group, aggregate]
@@ -45,6 +45,7 @@ flowchart TB
     end
     tabs --> state --> CORE
     state --> VIZ
+    api[api/ — FastAPI] --> state
 ```
 
 **Rule:** `core/` never imports from `ui/`. `visualization/` depends only on `core` helpers. The UI holds no analysis logic.
@@ -71,7 +72,8 @@ flowchart TB
 | `core/NLP/query_engine.py` | Execute a plan with pandas (aggregates, rankings, distinct lists with attributes, chart tables) |
 | `core/NLP/answer_generator.py` | Plan + result → sentence |
 | `visualization/*` | Chart specification, recommendation, validation, computation, rendering, mapping from insights/plans to charts |
-| `ui/state.py` | Per-dataset cache: quality, insights, charts registry, ask history, workbook, ask contexts per sheet, target reports |
+| `service/session.py` | Session layer shared by the dashboard and the API: per-dataset cache (quality, insights, chart registry, ask history, workbook, ask contexts per sheet, target reports), background jobs, latest model / plan / forecast / segments / investigation |
+| `api/` | FastAPI service: `main` (endpoints, API key, CORS, error mapping), `schemas` (Pydantic request / response models), `results` (JSON views of result objects), `convert` (JSON-safe values and tables) |
 | `ui/app.py`, `ui/panels.py`, `ui/components.py` | Layout, callbacks, tab content, reusable components |
 
 ## Data flow
@@ -283,9 +285,31 @@ flowchart LR
 | Breakdown | Both numerator and denominator are grouped by the role's column in their own sheet; missing role → KPI unavailable for that breakdown |
 | Starter file | Repeated keys → roles named after their entity, event date → `date`, small categories → roles; KPIs: row count, totals and averages of row-level measures, shares of small categories |
 
+## HTTP API
+
+```mermaid
+flowchart LR
+    C[Clients<br/>.NET SFA app · Angular · scripts · agents] -->|HTTP + X-API-Key| A[FastAPI<br/>api/main.py]
+    A --> S[Session layer<br/>service/session.py]
+    D[Dash dashboard] --> S
+    S --> CORE[core/ pipelines]
+    A -->|POST → job_id| J[Background jobs]
+    J -->|GET /jobs/id| A
+    A --> R[(models/ registry)]
+```
+
+| Decision | Why |
+|---|---|
+| One session layer for UI and API | Same defaults and identical numbers in both; no analysis logic in either front end |
+| Background jobs with polling | Training and planning take seconds; HTTP requests stay short and clients show progress |
+| Fields optional, defaults automatic | A client can start with `{}` and override only what it knows |
+| Pydantic models for requests and main responses | OpenAPI schema for typed client generation (.NET, TypeScript); readable 400 errors |
+| Results as `{columns, rows, total_rows}` | One table shape for every client; long tables paged |
+| Saved-model scoring endpoint | The SFA app can score its own rows with a model trained and validated here |
+
 ## Dashboard state
 
-Dash stores live in the browser as JSON, so data never goes there. The browser holds only the dataset id and pinned chart keys; `ui/state.py` keeps dataframes, schemas, caches and chart specs server-side (`DatasetStore`, last 4 datasets).
+Dash stores live in the browser as JSON, so data never goes there. The browser holds only the dataset id and pinned chart keys; `service/session.py` keeps dataframes, schemas, caches and chart specs server-side (`DatasetStore`: last 4 datasets in the dashboard, last 8 in the API).
 
 ## Key design decisions
 
