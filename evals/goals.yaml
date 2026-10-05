@@ -1,0 +1,128 @@
+# Goal-box evaluation set (Phase 6b).
+#
+# Each case: a goal in plain words on a synthetic dataset and the fields
+# the plan must have. A list of values means any of them is right; a list
+# under features / dimensions means those columns must be included.
+# needs_model: wording the rules can't map (synonyms) - measured, not required.
+
+- id: retail-forecast-split
+  dataset: retail
+  text: forecast sales by region for the next 6 months
+  expect: {task: forecast, measure: Sales, group: Region, freq: M, horizon: 6}
+
+- id: retail-forecast-quarter
+  dataset: retail
+  text: forecast profit for the next quarter
+  expect: {task: forecast, measure: Profit, freq: Q, horizon: 1}
+
+- id: retail-why
+  dataset: retail
+  text: why did profit drop
+  expect: {task: why, measure: Profit, compare: previous}
+
+- id: retail-why-year
+  dataset: retail
+  text: why did sales change compared with last year
+  expect: {task: why, measure: Sales, compare: year}
+
+- id: retail-anomalies
+  dataset: retail
+  text: find unusual customers
+  expect: {task: segment, unit: customer_id}
+
+- id: retail-segment-features
+  dataset: retail
+  text: segment customers by sales and profit
+  expect: {task: segment, unit: customer_id, features: [Sales, Profit]}
+
+- id: retail-classify
+  dataset: retail
+  text: predict which orders will be returned
+  expect: {task: [classify, rank], target: Returned}
+
+- id: retail-regress
+  dataset: retail
+  text: estimate profit for each order
+  expect: {task: regress, target: Profit}
+
+- id: retail-ask
+  dataset: retail
+  text: list customers in North region
+  expect: {task: ask}
+
+- id: retail-vague
+  dataset: retail
+  text: make something nice
+  expect: {task: null}
+
+- id: stores-rank
+  dataset: stores
+  text: which stores are most likely to churn
+  expect: {task: rank, target: will_churn}
+
+- id: stores-classify
+  dataset: stores
+  text: predict whether a store will churn
+  expect: {task: [classify, rank], target: will_churn}
+
+- id: stores-forecast
+  dataset: stores
+  text: forecast footfall by region for the next 3 months
+  expect: {task: forecast, measure: footfall, group: region, horizon: 3}
+
+- id: stores-anomalies
+  dataset: stores
+  text: find unusual stores
+  expect: {task: segment, unit: store_code}
+
+- id: sales-plan-month
+  dataset: sales
+  text: plan which accounts each rep should contact next month
+  expect: {task: recommend, user: RepCode, item: AccountKey, period: month}
+
+- id: sales-plan-days
+  dataset: sales
+  text: plan contacts of each rep to accounts for the next 10 days
+  expect: {task: recommend, user: RepCode, item: AccountKey, period: days, days: 10}
+
+- id: orders-forecast
+  dataset: orders
+  text: forecast amount by region for the next 12 months
+  expect: {task: forecast, measure: amount, group: region, horizon: 12}
+
+- id: orders-why
+  dataset: orders
+  text: why did the amount change
+  expect: {task: why, measure: amount}
+
+# Wording that needs a language model (synonyms, paraphrases)
+
+- id: retail-synonym-forecast
+  dataset: retail
+  text: project revenue per area for the coming two quarters
+  expect: {task: forecast, measure: Sales, group: Region, freq: Q, horizon: 2}
+  needs_model: true
+
+- id: retail-synonym-why
+  dataset: retail
+  text: what made earnings fall
+  expect: {task: why, measure: Profit}
+  needs_model: true
+
+- id: retail-synonym-segment
+  dataset: retail
+  text: group similar shoppers
+  expect: {task: segment, unit: customer_id}
+  needs_model: true
+
+- id: retail-synonym-classify
+  dataset: retail
+  text: which purchases are likely to come back
+  expect: {task: [classify, rank], target: Returned}
+  needs_model: true
+
+- id: sales-synonym-plan
+  dataset: sales
+  text: tell every salesperson which clients to call on next month
+  expect: {task: recommend, user: RepCode, item: AccountKey, period: month}
+  needs_model: true

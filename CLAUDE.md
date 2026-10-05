@@ -33,6 +33,7 @@ This platform must work on **any** dataset. The pharma SFA workbook is only a te
 - `python -m pytest -q` must pass.
 - Tests use **synthetic data with names unrelated to the pharma workbook** (retail, stores, shipments, sales reps, customers) and **planted signals** (a known leak, group, outlier, trend) that the code must find. Tests never read the pharma workbook.
 - New behaviour needs a test; bugs get a regression test.
+- Changes to goal or question interpretation get a case in `evals/goals.yaml` or `evals/questions.yaml`; `python -m evals` must pass every plain-wording case (checked by `tests/test_llm_features.py`).
 
 ## Definition of done for a change
 
@@ -58,11 +59,13 @@ core/                 domain-agnostic engine
   kpi/                domain-file config, safe KPI evaluator, starter generator
   llm/                language-model providers (Ollama, Azure OpenAI, scripted) + validated structured output
   intent/             goal box: rules -> language model when unsure -> validation -> plan; suggestions
+  narrate/            fact sheets, template summaries, number-checked model summaries
 visualization/        chart specs, recommender, engine, renderer, theme
 service/              session layer (session.py) shared by the dashboard and the API
 ui/                   Dash app: layout and callbacks (app.py), tab content (panels.py)
 api/                  FastAPI service: endpoints (main.py), Pydantic schemas, result views
 domains/              optional domain files (*.yaml): the ONLY place domain terms may appear
+evals/                evaluation sets (goals.yaml, questions.yaml) + runner: python -m evals [--model]
 tests/                pytest, synthetic data only
 docs/                 user guide, architecture, roadmap, images, examples
 ```

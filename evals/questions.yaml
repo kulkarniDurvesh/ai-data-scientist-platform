@@ -1,0 +1,71 @@
+# Ask-box evaluation set (Phase 6b).
+#
+# Each case: a question and the query that must be computed (operation,
+# column, group_by, filters as column / operator / value). refuse: true
+# means the right answer is a refusal (no number), e.g. a value that
+# isn't in the data. needs_model: wording the rules can't read.
+
+- id: count-filter
+  dataset: retail
+  question: how many customers are in North region
+  expect: {operation: COUNT, column: customer_id, filters: [[Region, "=", North]]}
+
+- id: sum-by
+  dataset: retail
+  question: total sales by region
+  expect: {operation: SUM, column: Sales, group_by: Region}
+
+- id: average-by
+  dataset: retail
+  question: average profit by category
+  expect: {operation: AVERAGE, column: Profit, group_by: Category}
+
+- id: list-filter
+  dataset: retail
+  question: list customers in South region
+  expect: {operation: FILTER, filters: [[Region, "=", South]]}
+
+- id: max
+  dataset: retail
+  question: what is the maximum discount
+  expect: {operation: MAX, column: Discount}
+
+- id: chart
+  dataset: retail
+  question: pie chart of sales by category
+  expect: {operation: CHART, group_by: Category}
+
+- id: sum-filter
+  dataset: retail
+  question: what is the total profit in West region
+  expect: {operation: SUM, column: Profit, filters: [[Region, "=", West]]}
+
+- id: refuse-unknown-value
+  dataset: retail
+  question: how many customers are in Atlantis region
+  refuse: true
+
+- id: workbook-count
+  dataset: sales
+  question: how many accounts are in Gold tier
+  expect: {operation: COUNT, column: AccountKey, filters: [[Tier, "=", Gold]]}
+
+# Wording that needs a language model
+
+- id: synonym-sum-filter
+  dataset: retail
+  question: how much did we make in the south
+  expect: {operation: SUM, column: Sales, filters: [[Region, "=", South]]}
+  needs_model: true
+
+- id: synonym-average-filter
+  dataset: retail
+  question: what is the typical basket value for northern buyers
+  expect: {operation: AVERAGE, column: Sales, filters: [[Region, "=", North]]}
+  needs_model: true
+
+- id: synonym-count
+  dataset: retail
+  question: count shoppers in West
+  expect: {operation: COUNT, column: customer_id, filters: [[Region, "=", West]]}
+  needs_model: true

@@ -53,7 +53,7 @@ class QualityIssue(BaseModel):
 
 
 class AskRequest(BaseModel):
-    question: str = Field(..., examples=["which doctors are in Pune North territory"])
+    question: str = Field(..., examples=["which customers are in North region"])
 
 
 class AskResponse(BaseModel):
@@ -63,6 +63,8 @@ class AskResponse(BaseModel):
     error: str | None
     table: Table | None
     chart: dict[str, Any] | None
+    plan: dict[str, Any] | None = Field(None, description="The validated query that was computed")
+    by_model: bool = Field(False, description="True when the language model read the question")
 
 
 class Finding(BaseModel):
@@ -167,7 +169,7 @@ class WhyRequest(BaseModel):
 
 
 class KpiRequest(BaseModel):
-    domain: str | None = Field(None, description="Domain file name in the domains folder (e.g. 'pharma_sfa')")
+    domain: str | None = Field(None, description="Domain file name in the domains folder (without .yaml)")
     domain_yaml: str | None = Field(None, description="A domain file's YAML text, instead of a stored file")
     freq: Literal["W", "M", "Q"] = "M"
     group_role: str | None = None
@@ -235,6 +237,15 @@ class GoalRun(BaseModel):
     job_id: str | None = None
     status_url: str | None = None
     answer: AskResponse | None = None
+
+
+class NarrativeOut(BaseModel):
+    kind: str
+    text: str
+    source: str
+    note: str | None = None
+    unsupported: list[str] = []
+    facts: dict[str, str]
 
 
 class DomainInfo(BaseModel):

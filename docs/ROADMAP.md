@@ -18,6 +18,7 @@ Legend: ✅ done · 🔜 next · 📋 planned
 | ✅ 3d | Segments tab: units per row or per key, k-means (silhouette or fixed k) or quantile bands, named profiles, PCA map and heatmap, Isolation Forest anomalies with robust-z reasons, Spearman / redundancy / VIF / Cramér's V report, CSV download |
 | ✅ 4a | Investigate tab: period comparison (previous / last year), drill-down explanation chain with offsetting groups explained, mix / rate for averages, unusual groups, attention ranking with factors, why-questions in the Ask box, clean explain-by options |
 | ✅ 4b | KPIs tab: domain files (roles with per-sheet columns, declarative KPIs with filters and cross-sheet ratios, direction, format), safe evaluator with unavailable reasons and partial-period check, breakdown by role, trend, starter file generator; `domains/pharma_sfa.yaml` with 11 SFA KPIs |
+| ✅ 6b | Ask fallback (model proposes a query; columns and filter values validated; pandas computes; reading shown), Summary / In plain words cards from fact sheets with a number grounding check for model rewrites, narrative API, query plan in Ask answers, evaluation sets (23 goals, 12 questions) with `python -m evals [--model]`; fixed: unknown filter values were ignored |
 | ✅ 6a | Goal tab and LLM layer: provider interface (Ollama, Azure OpenAI, scripted), Pydantic-validated structured output with retry, hybrid goal interpreter (rules → model when unsure), validation with corrections / questions / listed defaults, editable confirmation card, suggestions from the data, goal links, goal API (interpret, check, run, suggestions, LLM status) |
 | ✅ 5 | HTTP API: FastAPI + Pydantic, 21 endpoints (datasets, quality, insights, ask, target, models with save and scoring, jobs, recommend, forecast, segments, why, KPIs), automatic defaults, background jobs, API key, CORS, OpenAPI docs; shared session layer; Dockerfile and docker-compose |
 
@@ -43,8 +44,8 @@ Legend: ✅ done · 🔜 next · 📋 planned
 | Phase | Deliverable |
 |---|---|
 | ✅ 6a | LLM layer with one interface for local (Ollama) and Azure OpenAI models; validated structured output; **free-text goal box** — approach **C** (hybrid rules + LLM interpreter → structured spec → validation → confirmation card with clarifying questions), **D** (editable card and questions) and **E** (goal suggestions generated from the data) |
-| 🔜 6b | LLM fallback for the Ask box (question → validated query plan); dataset and model narratives grounded in computed results; evaluation sets for goal and question interpretation |
-| 📋 7 | RAG over synthetic SOP/policy/product documents and project documents; hybrid search; answers with citations; retrieval and groundedness metrics |
+| ✅ 6b | LLM fallback for the Ask box (question → validated query plan); dataset and model narratives grounded in computed results; evaluation sets for goal and question interpretation |
+| 🔜 7 | RAG over synthetic SOP/policy/product documents and project documents; hybrid search; answers with citations; retrieval and groundedness metrics |
 | 📋 8 | Agentic AI: hand-written tool-calling loop → **free-text AutoML orchestrator** (goal → plan → clarifying questions → confirmation → pipelines → explanation), analyst agent, MCP server, small multi-agent setup, agent evaluation |
 
 ## Cloud, integration and governance (Phases 9–12)

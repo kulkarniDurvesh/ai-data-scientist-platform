@@ -129,6 +129,7 @@ def overview_panel(bundle: DatasetBundle) -> html.Div:
     return html.Div(
         [
             kpis,
+            narrative_card("dataset", _safe_narrative(bundle)),
             html.Div(
                 [
                     ui.section(
@@ -1028,6 +1029,7 @@ def model_results_view(result) -> html.Div:
     )
     notes = [ui.message(result.summary, "success")]
     notes += [ui.message(text, "error") for text in result.warnings]
+    notes.append(narrative_card("model", _model_narrative(result)))
 
     charts = [_importance_card(result)]
     if result.lift is not None:
@@ -2689,4 +2691,60 @@ def goal_done_view(result, summary: str, tab: str, label: str) -> html.Div:
                         n_clicks=0, className="btn btn-primary"),
         ],
         className="card",
+    )
+
+
+# ----------------------------------------------------------------------
+# Narratives
+# ----------------------------------------------------------------------
+
+def _safe_narrative(bundle: DatasetBundle):
+    try:
+        return bundle.narrative("dataset")
+    except (ValueError, TypeError, KeyError):
+        return None
+
+
+def _model_narrative(result):
+    from core.narrate import model_facts, narrate
+
+    try:
+        return narrate(model_facts(result))
+    except (ValueError, TypeError, KeyError):
+        return None
+
+
+def narrative_body(narrative) -> list:
+    if narrative is None:
+        return [html.P("No summary available.", className="goal-quote")]
+    source = (
+        "Written by the language model; every number was checked against the computed results."
+        if narrative.source == "language model"
+        else "Written from the computed results."
+    )
+    body = [html.P(narrative.text, className="narrative-text"), html.Div(source, className="goal-llm")]
+    if narrative.note:
+        body.append(ui.message(narrative.note, "info"))
+    return body
+
+
+def narrative_card(kind: str, narrative) -> html.Div:
+    from core.llm import get_provider
+
+    title = {"dataset": "Summary", "model": "In plain words"}[kind]
+    rewrite = (
+        html.Button("Rewrite with the language model", id={"type": "narrate-go", "kind": kind}, n_clicks=0,
+                    className="btn btn-ghost")
+        if get_provider() is not None
+        else None
+    )
+    return html.Div(
+        [
+            dcc.Store(id={"type": "narrate-job", "kind": kind}),
+            dcc.Interval(id={"type": "narrate-poll", "kind": kind}, interval=1500, disabled=True),
+            html.H3(title, className="card-title"),
+            html.Div(narrative_body(narrative), id={"type": "narrate-text", "kind": kind}),
+            rewrite,
+        ],
+        className="card narrative-card",
     )

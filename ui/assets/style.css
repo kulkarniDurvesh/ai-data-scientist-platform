@@ -524,3 +524,9 @@ body {
 .goal-assumptions summary { cursor: pointer; margin-bottom: 4px; }
 .goal-assumptions li { margin-left: 18px; }
 .goal-card > .btn { align-self: flex-start; }
+
+/* ---------- Narratives ---------- */
+.narrative-card { margin: 16px 0; display: flex; flex-direction: column; gap: 8px; }
+.narrative-card .card-title { margin: 0; }
+.narrative-text { margin: 0; line-height: 1.6; }
+.narrative-card > .btn { align-self: flex-start; }

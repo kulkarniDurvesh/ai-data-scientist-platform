@@ -813,6 +813,49 @@ def _register_callbacks(app: Dash) -> None:
 
         return dcc.send_data_frame(bundle.latest_recommendation.plan.to_csv, "visit_plan.csv", index=False)
 
+    # -- Narratives (language-model rewrite of a summary) --------------------
+
+    @app.callback(
+        Output({"type": "narrate-job", "kind": MATCH}, "data"),
+        Output({"type": "narrate-poll", "kind": MATCH}, "disabled"),
+        Output({"type": "narrate-text", "kind": MATCH}, "children"),
+        Input({"type": "narrate-go", "kind": MATCH}, "n_clicks"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def rewrite_summary(clicks, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if not clicks or bundle is None or not isinstance(ctx.triggered_id, dict):
+            return no_update, no_update, no_update
+
+        try:
+            job_id = bundle.start_narrative_job(ctx.triggered_id["kind"])
+        except (ValueError, TypeError, KeyError) as error:
+            return None, True, ui.message(str(error), "error")
+
+        return job_id, False, panels.model_progress_view(bundle.model_job(job_id))
+
+    @app.callback(
+        Output({"type": "narrate-text", "kind": MATCH}, "children", allow_duplicate=True),
+        Output({"type": "narrate-poll", "kind": MATCH}, "disabled", allow_duplicate=True),
+        Input({"type": "narrate-poll", "kind": MATCH}, "n_intervals"),
+        State({"type": "narrate-job", "kind": MATCH}, "data"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def poll_summary(_ticks, job_id, dataset_id):
+        bundle = store.get(dataset_id)
+        job = bundle.model_job(job_id) if bundle and job_id else None
+
+        if job is None:
+            return no_update, True
+        if job["status"] == "running":
+            return panels.model_progress_view(job), False
+        if job["status"] == "error":
+            return ui.message(f"The summary failed: {job['error']}", "error"), True
+        return panels.narrative_body(job["result"]), True
+
     # -- Goal box -----------------------------------------------------------
 
     @app.callback(

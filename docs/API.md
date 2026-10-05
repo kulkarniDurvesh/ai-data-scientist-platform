@@ -38,7 +38,8 @@ docker compose up --build         # API on :8000 and dashboard on :8050
 | GET | `/datasets/{id}` | Rows, columns, sheets, primary time, column roles |
 | GET | `/datasets/{id}/quality` | Data-quality findings |
 | GET | `/datasets/{id}/insights?top=10` | Ranked insights |
-| POST | `/datasets/{id}/ask` | `{question}` → answer, table, chart spec (also "why did … change?") |
+| GET | `/datasets/{id}/narrative?kind=dataset\|model&use_model=false` | Plain-language summary from computed facts (with the facts); `use_model=true` asks the language model, whose text is kept only if every number is in the facts |
+| POST | `/datasets/{id}/ask` | `{question}` → answer, table, chart spec, the computed query `plan`, `by_model` (also "why did … change?") |
 | GET | `/datasets/{id}/target?column=` | Target analysis: rate, findings, split, segments, feature signal, Markdown report |
 | POST | `/datasets/{id}/models` | `{goal_type: rank|classify|regress, target?}` → job; result: candidates, metrics vs baseline, importance, lift, scored rows |
 | GET | `/datasets/{id}/models/latest?rows=` | The last trained model's result |

@@ -52,6 +52,7 @@ from .schemas import (
     GoalSpec,
     GoalText,
     LlmStatus,
+    NarrativeOut,
     Health,
     JobStarted,
     JobStatus,
@@ -167,6 +168,19 @@ def quality(dataset_id: str) -> list[QualityIssue]:
     ]
 
 
+@app.get("/datasets/{dataset_id}/narrative", response_model=NarrativeOut, tags=["datasets"])
+def narrative(dataset_id: str, kind: str = Query("dataset", pattern="^(dataset|model)$"), use_model: bool = False) -> NarrativeOut:
+    """A plain-language summary from computed facts; with use_model, a language model's rewrite
+    whose numbers are all checked against the facts (else the template is returned with a note)."""
+
+    bundle = bundle_or_404(dataset_id)
+    if kind == "model" and bundle.latest_model is None:
+        raise HTTPException(status_code=404, detail="No model trained on this dataset yet.")
+    sheet = bundle.facts(kind)
+    text = bundle.narrative(kind, use_model)
+    return NarrativeOut(kind=kind, facts=sheet.to_dict()["facts"], **text.to_dict())
+
+
 @app.get("/datasets/{dataset_id}/insights", tags=["datasets"])
 def insights(dataset_id: str, top: int = Query(10, ge=1, le=50)) -> list[dict[str, Any]]:
     keep = ("pattern_type", "description", "explanation", "evidence", "interestingness_score")
@@ -235,6 +249,8 @@ def _ask_response(bundle: DatasetBundle, entry: dict) -> AskResponse:
         error=entry["error"],
         table=table(entry["table"], limit=200) if isinstance(entry.get("table"), pd.DataFrame) else None,
         chart=plain(chart),
+        plan=plain(entry.get("plan")),
+        by_model=bool(entry.get("by_model")),
     )
 
 

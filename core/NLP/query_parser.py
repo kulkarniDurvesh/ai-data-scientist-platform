@@ -97,6 +97,10 @@ class QueryParser:
         """The key column whose entities a question counts ("why did visits drop")."""
         return self._infer_count_entity(self._split_glued_words(question).lower())
 
+    def values_in(self, question: str) -> list[QueryFilter]:
+        """Filters for category values the question names exactly ("... in West")."""
+        return self._detect_categorical_filters(self._split_glued_words(question))
+
     def parse(self, question: str) -> ParsedQuery:
 
         if not question or not question.strip():
@@ -140,6 +144,8 @@ class QueryParser:
             question,
             filters
         )
+
+        unresolved += self._unknown_category_values(question, filters + code_filters)
 
         date_filters, notes = self._detect_date_filters(question)
 
@@ -552,6 +558,58 @@ class QueryParser:
                     )
 
         return self._one_column_per_value(question, filters)
+
+    # Words between a preposition and a column name that are not values:
+    # "in each region", "for the same category".
+    NOT_VALUES = {
+        "each", "every", "all", "any", "which", "what", "that", "this", "the", "a", "an",
+        "my", "our", "their", "its", "same", "one", "per", "whole", "entire", "every",
+    }
+
+    def _unknown_category_values(self, question: str, filters: list[QueryFilter]) -> list[str]:
+        """
+        "customers in Atlantis region": a value placed before a category
+        column's name that the column doesn't have. Ignoring it would
+        silently answer a different question, so it is reported instead.
+        """
+
+        text = question.lower()
+        filtered = {f.column for f in filters}
+        unknown = []
+
+        for column in self.filterable_columns:
+            if column in filtered or (self.schema is not None and self.schema.role_of(str(column)) == "identifier"):
+                continue
+            tokens = [t for t in self._column_name_words(column) if len(t) >= 3]
+            if not tokens:
+                continue
+            name = re.escape(tokens[-1])
+            for match in re.finditer(rf"\b(?:in|from|of|for|at|with)\s+((?:[\w\-]+\s+){{1,3}}?){name}s?\b", text):
+                phrase = match.group(1).strip()
+                words = phrase.split()
+                if not words or any(w in self.NOT_VALUES or w in self.CONNECTORS for w in words):
+                    continue
+                if any(same_word(w, t) for w in words for t in self._all_name_words()):
+                    continue
+                values = {str(v).strip().lower() for v in self.df[column].dropna().unique()}
+                if phrase in values or any(word in values for word in words):
+                    continue
+                original = question[match.start(1): match.start(1) + len(phrase)]
+                if original not in unknown:
+                    unknown.append(original)
+        return unknown
+
+    CONNECTORS = {"by", "per", "and", "or", "vs", "versus", "to", "across", "over", "than", "with", "without", "on", "as"}
+
+    def _all_name_words(self) -> set[str]:
+        if not hasattr(self, "_name_words"):
+            self._name_words = {t for c in self.columns for t in self._column_name_words(c) if len(t) >= 3}
+        return self._name_words
+
+    def _column_name_words(self, column) -> list[str]:
+        from core.schema_inference import name_tokens
+
+        return name_tokens(column)
 
     def _one_column_per_value(
         self,

@@ -58,7 +58,9 @@ from core.recommend import (
     role_options,
 )
 from core.intent import DataView, GoalPlan, IntentSpec, complete as complete_goal, interpret, suggestions
-from core.llm import get_provider
+from core.llm import LLMError, get_provider
+from core.narrate import FactSheet, Narrative, dataset_facts, model_facts, narrate
+from core.NLP.llm_query import Unanswerable, describe_query, propose_query, to_parsed_query
 from core.target_analysis import TargetReport, analyze_target, detect_targets
 from core.workbook import Workbook
 from visualization import (
@@ -454,6 +456,34 @@ class DatasetBundle:
         return self._run_job(work, done)
 
     # ------------------------------------------------------------------
+    # Narratives (summaries grounded in computed results)
+    # ------------------------------------------------------------------
+
+    def facts(self, kind: str) -> FactSheet:
+        if kind == "dataset":
+            return dataset_facts(self.name, self.df, self.schema, self.quality(), self.insights(), self.sheets)
+        if kind == "model":
+            if self.latest_model is None:
+                raise ValueError("No model trained on this dataset yet.")
+            return model_facts(self.latest_model)
+        raise ValueError(f"Unknown summary '{kind}'.")
+
+    def narrative(self, kind: str, use_model: bool = False) -> Narrative:
+        """The template summary, or a language model's checked rewrite."""
+
+        return narrate(self.facts(kind), get_provider() if use_model else None)
+
+    def start_narrative_job(self, kind: str) -> str:
+        sheet = self.facts(kind)
+        provider = get_provider()
+
+        def work(progress):
+            progress("Writing the summary with the language model...")
+            return narrate(sheet, provider)
+
+        return self._run_job(work, lambda result: None)
+
+    # ------------------------------------------------------------------
     # Goal box (free text -> plan -> run)
     # ------------------------------------------------------------------
 
@@ -628,6 +658,8 @@ class DatasetBundle:
             "chart_key": None,
             "error": None,
             "notice": None,
+            "plan": None,
+            "by_model": False,
         }
 
         try:
@@ -650,6 +682,15 @@ class DatasetBundle:
                 answered = [other for other in others if other.ok]
                 if answered:
                     attempt = max(answered, key=lambda other: other.score)
+
+            # The rules couldn't read it: a language model (when switched on)
+            # proposes a query that is validated and computed like any other.
+            if attempt.error is not None and not attempt.ok:
+                provider = get_provider()
+                if provider is not None:
+                    fallback = self._model_attempt(self.sheet, question, provider)
+                    if fallback.ok or attempt.parsed is None:
+                        attempt = fallback
 
             self._fill(entry, attempt)
 
@@ -685,6 +726,32 @@ class DatasetBundle:
             attempt.error = str(error)
 
         attempt.score = self._score(attempt, question)
+
+        return attempt
+
+    def _model_attempt(self, sheet: str | None, question: str, provider) -> Attempt:
+        context = self._ask_context(sheet)
+        attempt = Attempt(context=context, by_model=True)
+
+        try:
+            proposal = propose_query(question, context.df, context.schema, provider)
+            attempt.parsed = to_parsed_query(proposal, context.df, context.schema)
+            # Values the question names exactly must be filtered on, even if
+            # the model left them out ("count shoppers in West").
+            have = {f.column for f in attempt.parsed.filters}
+            for named in context.parser.values_in(question):
+                if named.column not in have:
+                    attempt.parsed.filters.append(named)
+                    have.add(named.column)
+            attempt.plan = context.planner.create_plan(attempt.parsed)
+            attempt.result = context.engine.execute(attempt.plan)
+            attempt.answer = generator.generate(question, attempt.parsed, attempt.plan, attempt.result)
+        except Unanswerable as error:
+            attempt.error = f"This data can't answer that: {error}"
+        except LLMError as error:
+            attempt.error = f"The language model could not be used: {error}"
+        except (ValueError, TypeError, KeyError) as error:
+            attempt.error = f"The language model's reading didn't fit the data: {error}"
 
         return attempt
 
@@ -725,6 +792,8 @@ class DatasetBundle:
 
         result = attempt.result
         notes = []
+        entry["plan"] = attempt.plan.to_dict() if attempt.plan is not None else None
+        entry["by_model"] = attempt.by_model
 
         used = context.sources and _columns_used(attempt.plan, result)
         lookups = [
@@ -732,6 +801,9 @@ class DatasetBundle:
             for sheet in dict.fromkeys(context.sources.get(column) for column in used or [])
             if sheet
         ]
+
+        if attempt.by_model:
+            notes.append(f"(Read with the language model as: {describe_query(attempt.parsed)}.)")
 
         if context.sheet != self.sheet:
             source = f"Answered from the '{context.sheet}' sheet"
@@ -848,6 +920,7 @@ class Attempt:
     answer: str | None = None
     error: str | None = None
     score: tuple = ()
+    by_model: bool = False
 
     @property
     def ok(self) -> bool:

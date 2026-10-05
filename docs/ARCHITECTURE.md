@@ -62,6 +62,9 @@ flowchart TB
 | `core/workbook.py` | Load all sheets, detect key links, build enriched (looked-up) frames |
 | `core/target_analysis.py` | Target detection and the target report (segments, feature signal, leakage, panel, split, drift, Markdown) |
 | `core/llm/` | Language-model layer: `provider` (one interface; Ollama, Azure OpenAI, scripted stand-in; settings from environment; availability check with reasons), `structured` (JSON-schema request, parse, Pydantic validation, one retry with the error) |
+| `core/NLP/llm_query.py` | Ask fallback: table description for the model, `QueryProposal` schema, validation into a `ParsedQuery` (columns matched, filter values must exist, numbers for numeric columns), description of the reading |
+| `core/narrate/` | Summaries: `facts` (dataset and model fact sheets with formatted numbers), `write` (template text, language-model rewrite, number grounding check) |
+| `evals/` | Evaluation sets (`goals.yaml`, `questions.yaml`) and runner (`python -m evals [--model] [--out]`) on the synthetic datasets |
 | `core/intent/` | Goal box: `spec` (IntentSpec, GoalPlan, Question, task catalogue), `view` (tables a task can use), `rules` (generic cues, column and table name matching, time phrases, unknown words), `interpret_llm` (catalogue prompt, GoalProposal schema), `complete` (validation, corrections, defaults as assumptions, questions, summary), `engine` (hybrid interpret, suggestions) |
 | `core/kpi/` | KPI layer: `config` (YAML schema, validation with readable errors, roles with per-table columns), `evaluate` (filters, aggregations, ratios, periods, breakdowns, unavailable reasons, partial-period check), `starter` (discover fitting domain files, generate a starter file) |
 | `core/why/` | Why-analysis: `change` (periods, comparison, breakdown with mix / rate, drill-down chain and narrative), `attention` (group history, unusual groups, attention ranking), `engine` (explain-by and attention options, orchestration) |
@@ -312,6 +315,29 @@ flowchart LR
 | Unknown words are reported | "Not understood: 'clients'" instead of silently ignoring part of the goal |
 | Defaults listed as choices | The user sees every automatic decision and can change it on the card |
 | Same pipelines as the tabs | A goal starts the existing job; results open in the matching tab; nothing new computes numbers |
+
+## Language model, grounded
+
+```mermaid
+flowchart LR
+    Q[Question] --> R[Rule parser]
+    R -->|read| P[Planner + pandas engine]
+    R -->|can't read, model on| M[Model: QueryProposal]
+    M --> V[Validate: columns exist,<br/>filter values exist] --> P
+    P --> A[Answer + how it was read]
+    F[Fact sheet<br/>computed numbers] --> T[Template summary]
+    F --> L[Model rewrite] --> G{Every number<br/>in the facts?}
+    G -->|yes| S[Model summary]
+    G -->|no| T
+```
+
+| Decision | Why |
+|---|---|
+| The model proposes queries, never answers | Numbers come from pandas on the real data; a wrong reading fails validation instead of producing a plausible wrong number |
+| Filter values must exist | A misspelt or invented value is refused (the same rule now applies to the rule parser) |
+| Rules first | Plain questions never wait for the model; the model is optional (`AIDS_LLM_PROVIDER`, default none) |
+| Summaries from fact sheets | The model only rewrites computed facts; any number not in the facts rejects the rewrite |
+| Evaluation sets in the repo | Interpretation quality is measured, not assumed; a case per wording type, plain and synonym cases reported separately |
 
 ## HTTP API
 

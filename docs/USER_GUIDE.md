@@ -40,6 +40,7 @@ The header shows the file name, rows × columns and the current sheet (e.g. "she
 | Section | What it shows |
 |---|---|
 | **Tiles** | Rows, columns (with role counts), missing cells, duplicate rows, quality issues, the time axis and its range |
+| **Summary** | The dataset in a few sentences, written from computed facts (size, roles, time span, missing cells, main quality problems, top patterns). With a language model switched on, *Rewrite with the language model* rewrites it; the rewrite is kept only if every number in it is one of the computed facts |
 | **Data quality** | Findings by severity — *Critical* (fix before analysis), *Warning*, *Info* — e.g. impossible negative values, outliers, skew, imbalance, missing dates |
 | **Columns** | How each column was understood: role (Measure, Category, Yes/No, Date/time, ID / key, Free text, Constant), detail, unique values, missing %, examples |
 | **Data preview** | First 200 rows |
@@ -122,6 +123,10 @@ Type a question and press **Ask** (or Enter). Suggested questions under the box 
 
 Each answer card shows the question, a sentence answer, notes (year ambiguity, which sheets were used), a table for lists and rankings, and a chart where useful (chart answers keep their numbers under **View data**). Charts can be pinned.
 
+### With a language model
+
+When a language model is switched on (`AIDS_LLM_PROVIDER=ollama` or `azure`), questions the rules can't read are passed to it. It returns a structured query, not an answer: columns and filter values are checked against the data and the number is computed like any other. The answer says how it was read, e.g. *(Read with the language model as: sum of 'Sales' where Region = South.)*. If the model names a value or column that doesn't exist, or says the data can't answer, you get that message instead of a number.
+
 ### When it can't answer
 
 | Message | Meaning / what to do |
@@ -130,6 +135,8 @@ Each answer card shows the question, a sentence answer, notes (year ambiguity, w
 | *I couldn't match any column or value* | Name a column or a value as it appears in the data |
 | *This sheet has no date column* | Date words can't be applied to this sheet |
 | *Tell me what to split the chart by* | Add "by <column>" to a chart request |
+| *'Atlantis' isn't in this sheet or in any other sheet* | A value before a column name ("in Atlantis region") that the column doesn't have; it is not ignored |
+| *This data can't answer that: …* | The language model found no columns that answer the question |
 
 ## Target tab
 
