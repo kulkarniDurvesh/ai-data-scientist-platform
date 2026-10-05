@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 from dash import dcc, html
 
-from core.schema_inference import format_number, humanize
+from core.schema_inference import format_number, humanize, key_entity_name
 import plotly.graph_objects as go
 
 import numpy as np
@@ -1197,9 +1197,8 @@ def recommend_panel(bundle: DatasetBundle) -> html.Div:
     if not sheets:
         return ui.empty_state(
             "No interaction table found",
-            "Recommendations need a table of interactions: who contacted what, "
-            "when, and with which outcome (e.g. visits with MR, doctor, date "
-            "and outcome).",
+            "Recommendations need a table of interactions: two repeated keys "
+            "(who contacted what), a date and an outcome column.",
         )
 
     sheet = sheets[0]
@@ -1341,7 +1340,10 @@ def recommend_roles_view(bundle: DatasetBundle, sheet: str | None) -> html.Div:
                     _number("rec-gap", "Min days between contacts", None, "auto"),
                     dcc.Checklist(
                         id="rec-owner",
-                        options=[{"label": " Keep each item with one user (e.g. each doctor with one MR)", "value": "owner"}],
+                        options=[{
+                            "label": f" Keep each {entity_noun(roles.item)} with one {entity_noun(roles.user)}",
+                            "value": "owner",
+                        }],
                         value=["owner"],
                         className="field",
                     ),
@@ -1358,6 +1360,11 @@ def recommend_roles_view(bundle: DatasetBundle, sheet: str | None) -> html.Div:
             ),
         ]
     )
+
+
+def entity_noun(column: str) -> str:
+    """The thing a key column names, from the data: DoctorId -> doctor."""
+    return key_entity_name(column) or humanize(column).lower()
 
 
 def success_options(frame: pd.DataFrame, outcome: str) -> list[dict]:

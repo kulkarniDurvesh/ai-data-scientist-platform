@@ -99,7 +99,7 @@ def build_recommender(
         reference, model.predict(history.loc[labelled]), model.importance, model.numeric, model.categorical,
     )
 
-    say("Planning visits")
+    say("Planning contacts")
     plan = build_plan(
         history, universe, users, roles, resolved,
         score=model.predict,

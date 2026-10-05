@@ -25,15 +25,15 @@ from core.target_analysis import TargetReport, analyze_target, detect_targets
 GOAL_TYPES = {
     "classify": {
         "label": "Predict a yes/no outcome",
-        "description": "Estimate the probability of an event, e.g. will this "
-        "doctor order next month, will this customer churn.",
+        "description": "Estimate the probability of an event, e.g. will a "
+        "customer buy again next month, will an account churn.",
         "target_roles": {"binary"},
     },
     "rank": {
         "label": "Rank / prioritise",
         "description": "Order entities by how likely the outcome is, e.g. which "
-        "doctors an MR should visit first. Same model as yes/no, judged by how "
-        "well the top of the list captures the outcome.",
+        "accounts to contact first. Same model as yes/no, judged by how well "
+        "the top of the list captures the outcome.",
         "target_roles": {"binary"},
     },
     "regress": {
