@@ -5,6 +5,7 @@ Start it with `python app.py` (or `python app.py --file data.xlsx`) and open <ht
 
 - [Loading data](#loading-data)
 - [Overview tab](#overview-tab)
+- [Goal tab](#goal-tab)
 - [Auto insights tab](#auto-insights-tab)
 - [Chart builder tab](#chart-builder-tab)
 - [Ask tab](#ask-tab)
@@ -44,6 +45,37 @@ The header shows the file name, rows × columns and the current sheet (e.g. "she
 | **Data preview** | First 200 rows |
 
 Roles drive everything else: which charts are recommended, what the chart builder offers, how questions are interpreted and which columns can be a model target.
+
+## Goal tab
+
+Say what you want to build in plain words and press **Understand**, or click one of the **suggested** goals (they come from the data and are ready to run).
+
+| Example | Becomes |
+|---|---|
+| *plan calls to customers for each rep next month* | Recommend: user = the rep key, item = the customer key, a day-by-day plan for next month |
+| *forecast sales by region for the next 6 months* | Forecast: measure = Sales, split by Region, monthly, 6 periods |
+| *why did profit drop* | Investigate: change in total Profit, latest complete period vs the previous one |
+| *which stores are most likely to churn* | Rank: model for the yes/no churn column |
+| *find unusual customers* | Segments: one unit per customer, anomalies flagged |
+| *list customers in North region* | Ask: answered like the Ask tab |
+
+### The card
+
+- **Title and badge** — what will run, and how the goal was read (*rules*, *language model*, *suggested*, *edited*).
+- **Goal and Table** — change them to start from that goal's defaults.
+- **Fields** — every column the pipeline will use, as dropdowns; empty multi-selects mean "all suitable columns". Each change is checked again.
+- **Summary** — one sentence in the data's own words.
+- **Questions** (yellow) — something must be chosen before running: a goal that isn't clear, or a column that doesn't exist or doesn't fit (e.g. a text column as the thing to predict).
+- **Notes** (grey) — words that matched nothing (*"Not understood: 'clients'"*), or a target that lives in another table.
+- **Choices made** — every default picked for you (date column, outcome, success values, table).
+
+**Run** starts the pipeline in the background; when it finishes, a short result appears with a button that opens the full results in the matching tab.
+
+### Rules and the language model
+
+The rules understand wording that reuses the data's names (*customers → customer_id*, *regions → Region*) and generic words (*forecast, why, plan, rank, segment, next 6 months, by, per*). Other words for columns (*clients*, *salesperson*) need a language model: with **Ollama** running locally (`ollama pull qwen3.5:4b`) or Azure OpenAI configured, it is asked only when the rules are unsure. The line under the text box says which model is in use. The model only proposes; every proposal is checked like any other, and it never computes numbers.
+
+A goal can be shared as a link: `http://127.0.0.1:8050/?tab=goal&goal=forecast%20sales%20by%20region`.
 
 ## Auto insights tab
 
@@ -318,3 +350,5 @@ Every chart pinned from any tab, including charts answered from another sheet. U
 | First question on a workbook is slow | Linking sheets takes a few seconds; it runs in the background right after loading |
 | A column has the wrong role | Check the Overview → Columns table; roles come from values and names (e.g. names ending in *Id*, *Code*, *Key*, *No* are keys) |
 | An answer used an unexpected date column | Mention the event in the question ("visited", "ordered", "shipped") or add a year |
+| Goal tab says "No language model" | Optional: install Ollama and run `ollama pull qwen3.5:4b` (or set `AIDS_LLM_MODEL` to an installed model), then reload; rules and the card work without it |
+| A goal word is "not understood" | Use the data's column names, or pick the field on the card; a language model maps other words |

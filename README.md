@@ -52,7 +52,8 @@ Most EDA tools show charts; this project aims to behave like a **data scientist*
 7. **segments and screens** — groups units into named segments, flags unusual ones with reasons, and reports correlated, redundant and collinear features;
 8. **explains why a number changed** — compares periods, follows the group that explains most of the movement down a few levels, flags unusual groups and ranks what needs attention (also from the Ask box: *"why did revenue increase?"*);
 9. **computes business KPIs** defined once in an optional domain file (`domains/*.yaml`) — the only place domain terms live — per period and per role, with their definitions;
-10. **serves everything over HTTP** — a typed FastAPI service with OpenAPI docs, background jobs and a model-scoring endpoint, packaged with Docker, so other apps (e.g. a .NET field-force app) can use the platform.
+10. **serves everything over HTTP** — a typed FastAPI service with OpenAPI docs, background jobs and a model-scoring endpoint, packaged with Docker, so other apps (e.g. a .NET field-force app) can use the platform;
+11. **understands goals in plain words** — *"plan calls to doctors for each MR next month"* becomes a checked plan (rules first, a local or cloud language model for synonyms), shown as an editable card with questions and choices before the right pipeline runs.
 
 The long-term goal (see [Roadmap](#roadmap)): the user states **what they want to achieve** — *predict, forecast, recommend, segment, find anomalies* — and the platform formulates the problem, trains and evaluates suitable models, and explains the results. An LLM acts as the **orchestrator**; tested Python pipelines do the computation, so numbers are never invented.
 
@@ -73,7 +74,9 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 | 4a | Investigate: period comparison, drill-down explanation (sums and mix / rate for averages), unusual groups, attention ranking, why-questions in Ask | ✅ Done |
 | 4b | KPIs: optional domain files with roles and safe KPI formulas, per period and per role, starter file generator | ✅ Done |
 | 5 | HTTP API: FastAPI + Pydantic, 21 endpoints, background jobs, saved-model scoring, API key, CORS, Docker / compose | ✅ Done |
-| 6–8 | LLM layer and **free-text goal box**, RAG with citations, agentic AI (AutoML orchestrator, analyst agent, MCP server) | 🔜 Next |
+| 6a | LLM layer (Ollama / Azure OpenAI, validated structured output) and the **free-text goal box**: hybrid interpreter, validation with questions, editable card, suggestions from the data, goal API | ✅ Done |
+| 6b | LLM fallback for the Ask box, dataset and model narratives, evaluation sets | 🔜 Next |
+| 7–8 | RAG with citations, agentic AI (AutoML orchestrator, analyst agent, MCP server) | 📋 Planned |
 | 9–11 | Azure (Bicep), .NET SFA integration + Manager Agent, evaluation and governance | 📋 Planned |
 
 ## Screenshots
@@ -135,6 +138,13 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 <summary><b>KPIs</b> — business KPIs from a domain file: current vs previous, trend, breakdown by role, definitions (click to expand)</summary>
 
 ![KPIs tab](docs/images/kpis.png)
+
+</details>
+
+<details open>
+<summary><b>Goal box</b> — a goal in plain words becomes a checked, editable plan (click to collapse)</summary>
+
+![Goal tab](docs/images/goal.png)
 
 </details>
 
@@ -234,6 +244,14 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 - **Starter file:** generated from any dataset's detected keys, dates, measures and small categories — a quick start for a new domain.
 - `domains/pharma_sfa.yaml` defines 11 SFA KPIs (visit completion, cancellation, order conversion, positive outcomes, follow-ups, coverage, revenue, orders, average order value…). It is configuration, so the code stays generic.
 
+### Goal box (Phase 6a)
+- **Say what you want in plain words** (Goal tab, or `POST /datasets/{id}/goals/interpret`): *"plan calls to doctors for each MR next month"*, *"forecast revenue by territory for the next 6 months"*, *"why did order revenue drop"*, *"which doctors are most likely to order next month"*, *"find unusual doctors"*.
+- **Hybrid interpreter (C):** rules read generic English cues and the dataset's own column and table names; a language model (local **Ollama** or **Azure OpenAI**, one interface) is asked only when the rules are unsure — e.g. synonyms like *physicians* or *salesperson* — and returns a structured proposal (Pydantic schema, retried once if invalid).
+- **Validated before anything runs:** every column is checked against the real tables and the role the task needs; near-misses are corrected (*sales → Sales*), invented columns become **clarifying questions**, defaults are listed as **choices made**, and words nothing matches are reported instead of guessed.
+- **Editable confirmation card (D):** goal, table and every field as dropdowns, re-validated on each change; **Run** starts the same tested pipeline as the tab (model, plan, forecast, segments, investigation or question), then opens its results.
+- **Suggestions from the data (E):** one-click goals the dataset supports, each already validated (e.g. *Rank by Next Month Order for each doctor*, *Plan which doctors each MR should contact*).
+- **Works without a model:** rules + questions + the card; the Goal tab says which model is in use and why not when none is. Shareable links: `?tab=goal&goal=<text>`.
+
 ### HTTP API (Phase 5)
 - **Every capability as typed endpoints:** upload, schema, quality, insights, ask (incl. why-questions), target analysis, model training / saving / scoring, recommendation plans (per user), forecasts, segments, why-analysis and KPIs — 21 endpoints, documented at `/docs` and `/openapi.json` for generating .NET or TypeScript clients.
 - **Same defaults as the dashboard:** fields left empty are chosen automatically (target, roles, date, measure, period…).
@@ -264,6 +282,8 @@ flowchart LR
     D & E & F & Q & T & M & R & FC & SG & WY & KP --> S[Session layer<br/>service/session.py]
     S --> UI[Dash dashboard]
     S --> API[FastAPI service<br/>/docs · jobs · scoring]
+    G[Goal box<br/>rules + LLM → validated plan] --> S
+    L[LLM layer<br/>Ollama · Azure OpenAI] -.-> G
 ```
 
 **Ask pipeline:** the question is parsed into intent, entity, filters, dates and chart type using the dataset's own column names and values → a validated query plan → executed with pandas → turned into a sentence, a table and (if useful) a chart. If the selected sheet can't answer, every linked sheet is tried and the best one is used.
@@ -291,6 +311,14 @@ Run the HTTP API (interactive docs at <http://127.0.0.1:8000/docs>):
 
 ```bash
 python -m api                    # or: docker compose up --build   (API :8000 + dashboard :8050)
+```
+
+Optional — a local language model for the goal box (the platform works without one):
+
+```bash
+ollama pull qwen3.5:4b           # CPU-friendly; any Ollama model works: set AIDS_LLM_MODEL
+# or Azure OpenAI: set AIDS_AZURE_OPENAI_ENDPOINT, AIDS_AZURE_OPENAI_DEPLOYMENT, AIDS_AZURE_OPENAI_KEY
+# AIDS_LLM_PROVIDER=auto|ollama|azure|none (default auto)
 ```
 
 Run the dashboard:
@@ -414,6 +442,8 @@ KPIs tab with `domains/pharma_sfa.yaml`, December vs November 2025:
 │   ├── segment/               # units → correlations → segments with profiles → anomalies with reasons
 │   ├── why/                   # period comparison → drill-down explanation → unusual groups → attention
 │   ├── kpi/                   # domain files: config model, safe evaluator, starter generator
+│   ├── llm/                   # language-model providers (Ollama, Azure OpenAI) + validated structured output
+│   ├── intent/                # goal box: rules → language model → validation → plan; suggestions
 │   └── NLP/                   # Ask engine: parser → planner → engine → answer
 ├── visualization/             # chart specs, recommender, engine, renderer, validator
 ├── service/                   # session layer shared by the dashboard and the API
@@ -438,7 +468,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-The suite (103 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, month plans with one MR per doctor and levelled load, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage), segmentation (planted groups recovered, planted outliers flagged, redundancy and exact totals found, bands), why-analysis (planted cause found, contributions add up, pure mix shift separated, collapsing entity ranked first, why-questions), KPIs (hand-checked values, cross-table ratios, unavailable reasons, partial periods, starter files), the HTTP API (every endpoint, jobs, saved-model scoring, API key) and dashboard rendering.
+The suite (121 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, month plans with one MR per doctor and levelled load, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage), segmentation (planted groups recovered, planted outliers flagged, redundancy and exact totals found, bands), why-analysis (planted cause found, contributions add up, pure mix shift separated, collapsing entity ranked first, why-questions), KPIs (hand-checked values, cross-table ratios, unavailable reasons, partial periods, starter files), the HTTP API (every endpoint, jobs, saved-model scoring, API key), the goal box (rules for every task, unknown words reported, invented columns turned into questions, corrections, suggestions, scripted language-model replies, fallback when the model fails, structured-output retries, running goals) and dashboard rendering.
 
 ## Roadmap
 
@@ -451,7 +481,8 @@ The suite (103 tests) covers schema inference, data quality, charts, the Ask eng
 | ✅ 4a | "Why" tools: period comparison, drill-down, unusual groups, attention ranking | pandas |
 | ✅ 4b | KPI definitions layer (optional domain config) | PyYAML |
 | ✅ 5 | Python service with typed endpoints | FastAPI, Pydantic, Docker |
-| 6 | LLM layer: one interface for local and cloud models, structured output, LLM fallback for the Ask box, narratives — and the **free-text goal box** ([design](#free-text-goals-planned-phase-6)) | Ollama, Azure OpenAI |
+| ✅ 6a | LLM layer (one interface for local and cloud models, validated structured output) and the **free-text goal box** ([design](#free-text-goals-phase-6a)) | Ollama, Azure OpenAI, Pydantic |
+| 6b | LLM fallback for the Ask box, dataset and model narratives, evaluation sets | Ollama, Azure OpenAI |
 | 7 | RAG over SOP/policy/product documents with citations and retrieval metrics | ChromaDB, Azure AI Search |
 | 8 | Agentic AI: free-text goal → plan → clarifying questions → pipelines; analyst agent; MCP server; multi-agent | Microsoft Agent Framework, MCP |
 | 9 | On-demand Azure deployment, deleted automatically after use | Bicep deployment stacks, Container Apps, Key Vault, managed identity |
@@ -460,13 +491,13 @@ The suite (103 tests) covers schema inference, data quality, charts, the Ask eng
 
 Details, done-criteria and learning goals per phase: [docs/ROADMAP.md](docs/ROADMAP.md).
 
-### Free-text goals (planned, Phase 6)
+### Free-text goals (Phase 6a)
 
-Instead of filling in options, the user will type what they want, for example:
+Instead of filling in options, the user types what they want, for example:
 
 > *"Please create a recommendation engine to recommend the next visit to doctors by MR in their own area / territory"*
 
-and the platform will show its interpretation, ask for what is missing, and build it on confirmation:
+and the platform shows its interpretation, asks for what is missing, and builds it on confirmation:
 
 ```
 Free text ─► interpreter (rules first, LLM when uncertain) ─► structured spec
@@ -490,7 +521,7 @@ Why not rules alone: a test on the real workbook showed rules handle wording tha
 | Analysis / ML | pandas, NumPy, SciPy, scikit-learn, statsmodels, PyYAML | – |
 | UI | Dash, Plotly | Angular (SFA app) |
 | Service | FastAPI, Pydantic, uvicorn, Docker | Azure Container Apps |
-| AI | Rule-based NL engine | Ollama / Azure OpenAI, RAG, agents, MCP |
+| AI | Rule-based NL engine; LLM layer (Ollama, Azure OpenAI) with Pydantic-validated structured output; goal interpreter | RAG, agents, MCP |
 | Cloud | — | Azure (Bicep, Container Apps, AI Search, Key Vault, App Insights) |
 | Testing | pytest | GitHub Actions, LLM/RAG/agent evaluation sets |
 

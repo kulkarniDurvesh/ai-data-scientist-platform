@@ -41,7 +41,7 @@ from service.session import DatasetBundle, store
 
 ASSETS_FOLDER = str(Path(__file__).parent / "assets")
 
-TAB_VALUES = {"overview", "auto", "builder", "ask", "target", "model", "recommend", "forecast", "segments", "why", "kpi", "board"}
+TAB_VALUES = {"overview", "goal", "auto", "builder", "ask", "target", "model", "recommend", "forecast", "segments", "why", "kpi", "board"}
 
 HIDDEN = {"display": "none"}
 SHEET_PICKER = {"display": "flex", "alignItems": "center", "gap": "8px"}
@@ -167,6 +167,17 @@ def _layout(initial_id: str | None) -> html.Div:
                 ),
             ),
             dcc.Tab(
+                label="Goal",
+                value="goal",
+                className="tab",
+                selected_className="tab--selected",
+                children=dcc.Loading(
+                    html.Div(id="goal-panel", className="panel"),
+                    type="dot",
+                    color="var(--accent)",
+                ),
+            ),
+            dcc.Tab(
                 label="Auto insights",
                 value="auto",
                 className="tab",
@@ -285,6 +296,7 @@ def _layout(initial_id: str | None) -> html.Div:
             dcc.Store(id="dataset-id", data=initial_id),
             dcc.Store(id="board", data=[]),
             dcc.Store(id="auto-owner", data=None),
+            dcc.Store(id="goal-owner", data=None),
             dcc.Store(id="target-owner", data=None),
             dcc.Store(id="model-owner", data=None),
             dcc.Store(id="recommend-owner", data=None),
@@ -361,7 +373,7 @@ def _register_callbacks(app: Dash) -> None:
 
         return bundle.id, options, bundle.sheet, style, None, None, None
 
-    # -- Deep links: ?tab=auto|builder|ask|board -------------------------
+    # -- Deep links: ?tab=auto|builder|ask|board (and ?tab=goal&goal=...) --
 
     @app.callback(
         Output("tabs", "value"),
@@ -800,6 +812,197 @@ def _register_callbacks(app: Dash) -> None:
             return no_update
 
         return dcc.send_data_frame(bundle.latest_recommendation.plan.to_csv, "visit_plan.csv", index=False)
+
+    # -- Goal box -----------------------------------------------------------
+
+    @app.callback(
+        Output("goal-panel", "children"),
+        Output("goal-owner", "data"),
+        Input("tabs", "value"),
+        Input("dataset-id", "data"),
+        State("goal-owner", "data"),
+        State("url", "search"),
+    )
+    def show_goal(tab, dataset_id, owner, search):
+        if tab != "goal" or dataset_id is None or owner == dataset_id:
+            return no_update, no_update
+
+        bundle = store.get(dataset_id)
+
+        if bundle is None:
+            return None, None
+
+        text = parse_qs((search or "").lstrip("?")).get("goal", [None])[0]
+        return _safe(panels.goal_panel, bundle, text), dataset_id
+
+    @app.callback(
+        Output("goal-card", "children"),
+        Output("goal-plan", "data"),
+        Output("goal-result", "children"),
+        Input("goal-go", "n_clicks"),
+        Input({"type": "goal-suggest", "index": ALL}, "n_clicks"),
+        State("goal-text", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def understand_goal(_go, suggest_clicks, text, dataset_id):
+        bundle = store.get(dataset_id)
+        trigger = ctx.triggered_id
+
+        if bundle is None or trigger is None:
+            return no_update, no_update, no_update
+
+        if isinstance(trigger, dict):
+            if not any(suggest_clicks or []):
+                return no_update, no_update, no_update
+            suggestions = bundle.goal_suggestions()
+            if trigger["index"] >= len(suggestions):
+                return no_update, no_update, no_update
+            plan = suggestions[trigger["index"]]
+        else:
+            if not (text or "").strip():
+                return ui.message("Describe your goal first, or pick a suggestion.", "info"), None, None
+            try:
+                plan = bundle.interpret_goal(text)
+            except Exception as error:  # noqa: BLE001 - shown to the user
+                return ui.message(f"Could not read this goal: {error}", "error"), None, None
+
+        return _safe(panels.goal_card, bundle, plan), plan.to_dict(), None
+
+    @app.callback(
+        Output("goal-fields", "children"),
+        Output("goal-check", "children"),
+        Output("goal-plan", "data", allow_duplicate=True),
+        Input("goal-task", "value"),
+        Input("goal-sheet", "value"),
+        State("goal-plan", "data"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_goal_task(task, sheet, stored, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None or not stored or not task:
+            return no_update, no_update, no_update
+
+        sheet = panels.sheet_from_value(sheet)
+        spec = stored["spec"]
+        if task == spec.get("task") and (ctx.triggered_id != "goal-sheet" or sheet == spec.get("sheet")):
+            return no_update, no_update, no_update
+
+        # A new goal or table starts from that goal's defaults.
+        base = {"task": task, "sheet": sheet if ctx.triggered_id == "goal-sheet" else None,
+                "question": stored.get("text") if task == "ask" else None}
+        plan = bundle.check_goal(base, stored.get("text", ""))
+        return panels.goal_fields(plan), panels.goal_check(plan), plan.to_dict()
+
+    @app.callback(
+        Output("goal-check", "children", allow_duplicate=True),
+        Output("goal-plan", "data", allow_duplicate=True),
+        Input({"type": "goal-field", "field": ALL}, "value"),
+        State({"type": "goal-field", "field": ALL}, "id"),
+        State("goal-plan", "data"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def edit_goal(values, ids, stored, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None or not stored or not ids:
+            return no_update, no_update
+
+        spec = panels.goal_spec_from_fields(stored["spec"], ids, values)
+        if spec == stored["spec"]:
+            return no_update, no_update
+
+        plan = bundle.check_goal(spec, stored.get("text", ""))
+        return panels.goal_check(plan), plan.to_dict()
+
+    @app.callback(
+        Output("goal-job", "data"),
+        Output("goal-poll", "disabled"),
+        Output("goal-result", "children", allow_duplicate=True),
+        Input("goal-run", "n_clicks"),
+        State("goal-plan", "data"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def run_goal(clicks, stored, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if not clicks or bundle is None or not stored:
+            return no_update, no_update, no_update
+
+        try:
+            started = bundle.run_goal(stored["spec"])
+        except (ValueError, TypeError, KeyError) as error:
+            return None, True, ui.message(str(error), "error")
+
+        label = TAB_LABELS.get(started["tab"], started["tab"])
+        if "entry" in started:
+            entry = started["entry"]
+            text = entry.get("error") or entry.get("answer") or ""
+            return None, True, html.Div(
+                [
+                    html.H4("Answer", className="card-title"),
+                    html.P(text),
+                    html.Button(f"Open in {label}", id={"type": "goal-open", "tab": "ask"}, n_clicks=0, className="btn btn-primary"),
+                ],
+                className="card",
+            )
+
+        job_id = started["job_id"]
+        return {"id": job_id, "tab": started["tab"], "summary": stored.get("summary", "")}, False, \
+            panels.goal_progress_view(bundle.model_job(job_id), label)
+
+    @app.callback(
+        Output("goal-result", "children", allow_duplicate=True),
+        Output("goal-poll", "disabled", allow_duplicate=True),
+        Input("goal-poll", "n_intervals"),
+        State("goal-job", "data"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def poll_goal(_ticks, job_info, dataset_id):
+        bundle = store.get(dataset_id)
+        job = bundle.model_job(job_info["id"]) if bundle and job_info else None
+
+        if job is None:
+            return no_update, True
+
+        label = TAB_LABELS.get(job_info["tab"], job_info["tab"])
+        if job["status"] == "running":
+            return panels.goal_progress_view(job, label), False
+
+        if job["status"] == "error":
+            return ui.message(f"The goal failed: {job['error']}", "error"), True
+
+        return _safe(panels.goal_done_view, job["result"], job_info["summary"], job_info["tab"], label), True
+
+    @app.callback(
+        Output("tabs", "value", allow_duplicate=True),
+        Output("model-owner", "data", allow_duplicate=True),
+        Output("recommend-owner", "data", allow_duplicate=True),
+        Output("forecast-owner", "data", allow_duplicate=True),
+        Output("segments-owner", "data", allow_duplicate=True),
+        Output("why-owner", "data", allow_duplicate=True),
+        Output("ask-output", "children", allow_duplicate=True),
+        Input({"type": "goal-open", "tab": ALL}, "n_clicks"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def open_goal_results(clicks, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None or not any(clicks or []) or not isinstance(ctx.triggered_id, dict):
+            return (no_update,) * 7
+
+        tab = ctx.triggered_id["tab"]
+        # Clearing a tab's owner makes it render again with the new result.
+        owners = ["model", "recommend", "forecast", "segments", "why"]
+        cleared = [None if tab == name else no_update for name in owners]
+        answers = panels.answer_cards(bundle) if tab == "ask" else no_update
+        return (tab, *cleared, answers)
 
     # -- Forecast -----------------------------------------------------------
 
@@ -1550,6 +1753,16 @@ def _register_callbacks(app: Dash) -> None:
 def _decode(contents: str) -> bytes:
     _, encoded = contents.split(",", 1)
     return base64.b64decode(encoded)
+
+
+TAB_LABELS = {
+    "model": "Build model",
+    "recommend": "Recommend",
+    "forecast": "Forecast",
+    "segments": "Segments",
+    "why": "Investigate",
+    "ask": "Ask",
+}
 
 
 def _safe(builder, *args) -> Any:

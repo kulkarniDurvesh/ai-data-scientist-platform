@@ -29,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from core.forecast import DEFAULT_HORIZON, ROW_COUNT, SeriesSpec, default_aggregation, suggest_freq
+from core.llm import provider_status
 from core.kpi import DEFAULT_FOLDER as DOMAIN_FOLDER, ConfigError, evaluate_domain, load_domain, parse_domain
 from core.modeling import list_models, load_model, save_model
 from core.modeling.features import prepare_frame
@@ -46,6 +47,11 @@ from .schemas import (
     DatasetInfo,
     DomainInfo,
     ForecastRequest,
+    GoalPlanOut,
+    GoalRun,
+    GoalSpec,
+    GoalText,
+    LlmStatus,
     Health,
     JobStarted,
     JobStatus,
@@ -60,7 +66,7 @@ from .schemas import (
     WhyRequest,
 )
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 store = DatasetStore(capacity=8)
 
 
@@ -171,13 +177,56 @@ def insights(dataset_id: str, top: int = Query(10, ge=1, le=50)) -> list[dict[st
 
 
 # ----------------------------------------------------------------------
+# Goal box (free text -> validated plan -> run)
+# ----------------------------------------------------------------------
+
+@app.get("/llm/status", response_model=LlmStatus, tags=["goals"])
+def llm_status(refresh: bool = False) -> LlmStatus:
+    return LlmStatus(**provider_status(refresh))
+
+
+@app.get("/datasets/{dataset_id}/goals/suggestions", response_model=list[GoalPlanOut], tags=["goals"])
+def goal_suggestions(dataset_id: str) -> list[GoalPlanOut]:
+    return [GoalPlanOut(**plain(plan.to_dict())) for plan in bundle_or_404(dataset_id).goal_suggestions()]
+
+
+@app.post("/datasets/{dataset_id}/goals/interpret", response_model=GoalPlanOut, tags=["goals"])
+def interpret_goal(dataset_id: str, request: GoalText) -> GoalPlanOut:
+    """Read a goal in plain words: what will run, what was assumed, and any questions."""
+
+    return GoalPlanOut(**plain(bundle_or_404(dataset_id).interpret_goal(request.text).to_dict()))
+
+
+@app.post("/datasets/{dataset_id}/goals/check", response_model=GoalPlanOut, tags=["goals"])
+def check_goal(dataset_id: str, spec: GoalSpec) -> GoalPlanOut:
+    """Validate an edited goal (e.g. answers to the questions) and fill its defaults."""
+
+    return GoalPlanOut(**plain(bundle_or_404(dataset_id).check_goal(spec.model_dump()).to_dict()))
+
+
+@app.post("/datasets/{dataset_id}/goals/run", response_model=GoalRun, tags=["goals"])
+def run_goal(dataset_id: str, spec: GoalSpec) -> GoalRun:
+    """Run a complete goal: background job (poll status_url) or a direct answer."""
+
+    bundle = bundle_or_404(dataset_id)
+    started_goal = bundle.run_goal(spec.model_dump())
+    if "entry" in started_goal:
+        return GoalRun(tab=started_goal["tab"], answer=_ask_response(bundle, started_goal["entry"]))
+    job_id = started_goal["job_id"]
+    return GoalRun(tab=started_goal["tab"], job_id=job_id, status_url=f"/datasets/{bundle.id}/jobs/{job_id}")
+
+
+# ----------------------------------------------------------------------
 # Ask
 # ----------------------------------------------------------------------
 
 @app.post("/datasets/{dataset_id}/ask", response_model=AskResponse, tags=["ask"])
 def ask(dataset_id: str, request: AskRequest) -> AskResponse:
     bundle = bundle_or_404(dataset_id)
-    entry = bundle.ask(request.question.strip())
+    return _ask_response(bundle, bundle.ask(request.question.strip()))
+
+
+def _ask_response(bundle: DatasetBundle, entry: dict) -> AskResponse:
     chart = bundle.charts[entry["chart_key"]].to_dict() if entry.get("chart_key") else None
     return AskResponse(
         question=entry["question"],

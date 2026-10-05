@@ -16,6 +16,7 @@ This platform must work on **any** dataset. The pharma SFA workbook is only a te
 - **User-facing text must not contain domain words.** Build nouns from the data (e.g. `key_entity_name("DoctorId")` → "doctor") or use neutral examples ("customer", "account").
 - **Domain specifics** belong only in optional configuration files (`domains/*.yaml`, read by `core/kpi/`), never in code, and the platform must work without them.
 - Comments and docstrings may cite examples from any dataset; mark them as examples.
+- Language-model output is a proposal: it always goes through the same validation as user input (`core/intent/complete.py`), and the platform must work with no model (`AIDS_LLM_PROVIDER=none`). Tests use `ScriptedProvider`, never a live model.
 - Before finishing any change, search for hardcoded names: `grep -rniE "doctor|territor|mrid|visit|pharma" core ui visualization` should only hit comments and docstrings.
 
 ## Engineering principles
@@ -55,6 +56,8 @@ core/                 domain-agnostic engine
   segment/            units -> correlations -> segments -> anomalies
   why/                period comparison -> drill-down -> unusual groups -> attention
   kpi/                domain-file config, safe KPI evaluator, starter generator
+  llm/                language-model providers (Ollama, Azure OpenAI, scripted) + validated structured output
+  intent/             goal box: rules -> language model when unsure -> validation -> plan; suggestions
 visualization/        chart specs, recommender, engine, renderer, theme
 service/              session layer (session.py) shared by the dashboard and the API
 ui/                   Dash app: layout and callbacks (app.py), tab content (panels.py)

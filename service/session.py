@@ -57,6 +57,8 @@ from core.recommend import (
     group_options,
     role_options,
 )
+from core.intent import DataView, GoalPlan, IntentSpec, complete as complete_goal, interpret, suggestions
+from core.llm import get_provider
 from core.target_analysis import TargetReport, analyze_target, detect_targets
 from core.workbook import Workbook
 from visualization import (
@@ -119,6 +121,8 @@ class DatasetBundle:
     latest_segments_sheet: str | None = None
     latest_why: Investigation | None = None
     latest_why_sheet: str | None = None
+    _goal_view: DataView | None = field(default=None, repr=False)
+    _goal_suggestions: list[GoalPlan] | None = field(default=None, repr=False)
     _contexts: dict[str, "AskContext"] = field(default_factory=dict)
     _lock: threading.RLock = field(default_factory=threading.RLock)
 
@@ -448,6 +452,73 @@ class DatasetBundle:
             self.latest_recommendation = result
 
         return self._run_job(work, done)
+
+    # ------------------------------------------------------------------
+    # Goal box (free text -> plan -> run)
+    # ------------------------------------------------------------------
+
+    def goal_view(self) -> DataView:
+        if self._goal_view is None:
+            sheets = self.workbook.readable_sheets() if self.workbook is not None else [self.sheet]
+            self._goal_view = DataView(
+                name=self.name,
+                sheets=list(sheets),
+                model_sheet=self.sheet,
+                context_of=self.interaction_context,
+            )
+        return self._goal_view
+
+    def interpret_goal(self, text: str) -> GoalPlan:
+        return interpret(text, self.goal_view(), get_provider())
+
+    def check_goal(self, spec: IntentSpec | dict, text: str = "") -> GoalPlan:
+        """Re-validate a spec edited by the user (card choices, API clients)."""
+
+        return complete_goal(spec, self.goal_view(), "edited", text)
+
+    def goal_suggestions(self) -> list[GoalPlan]:
+        if self._goal_suggestions is None:
+            self._goal_suggestions = suggestions(self.goal_view())
+        return self._goal_suggestions
+
+    def run_goal(self, spec: IntentSpec | dict) -> dict[str, Any]:
+        """
+        Start the pipeline for a validated goal. Returns {"tab", "job_id"}
+        for background work, or {"tab", "entry"} for an answered question.
+        """
+
+        plan = self.check_goal(spec)
+        if not plan.ready:
+            questions = "; ".join(q.text for q in plan.questions)
+            raise ValueError(f"The goal is not complete: {questions}")
+        spec = plan.spec
+        task = spec.task
+
+        if task in ("rank", "classify", "regress"):
+            return {"tab": plan.tab, "job_id": self.start_model_job(task, spec.target)}
+
+        if task == "recommend":
+            roles = self.interaction_roles(spec.sheet, user=spec.user, item=spec.item, time=spec.time, outcome=spec.outcome)
+            settings = PlanSettings(days=spec.days or 5, period=spec.period or "month")
+            return {"tab": plan.tab, "job_id": self.start_recommend_job(spec.sheet, roles, settings)}
+
+        if task == "forecast":
+            series = SeriesSpec(time=spec.time, measure=spec.measure, aggregation=spec.aggregation,
+                                group=spec.group, freq=spec.freq, horizon=spec.horizon)
+            return {"tab": plan.tab, "job_id": self.start_forecast_job(spec.sheet, series)}
+
+        if task == "segment":
+            segments = SegmentSpec(unit=spec.unit, features=spec.features)
+            return {"tab": plan.tab, "job_id": self.start_segment_job(spec.sheet, segments)}
+
+        if task == "why":
+            frame, schema, _, _ = self.interaction_context(spec.sheet)
+            change = ChangeSpec(time=spec.time, measure=spec.measure, aggregation=spec.aggregation or "sum",
+                                freq=spec.freq, compare=spec.compare or "previous",
+                                dimensions=spec.dimensions or drill_options(frame, schema))
+            return {"tab": plan.tab, "job_id": self.start_why_job(spec.sheet, change, spec.attention, True)}
+
+        return {"tab": plan.tab, "entry": self.ask(spec.question)}
 
     # ------------------------------------------------------------------
     # Charts

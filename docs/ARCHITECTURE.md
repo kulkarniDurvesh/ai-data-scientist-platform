@@ -61,6 +61,8 @@ flowchart TB
 | `core/date_parts.py` | Detect "March 2025", "Q1", "in 2024"; choose the date column from question words; date-part masks |
 | `core/workbook.py` | Load all sheets, detect key links, build enriched (looked-up) frames |
 | `core/target_analysis.py` | Target detection and the target report (segments, feature signal, leakage, panel, split, drift, Markdown) |
+| `core/llm/` | Language-model layer: `provider` (one interface; Ollama, Azure OpenAI, scripted stand-in; settings from environment; availability check with reasons), `structured` (JSON-schema request, parse, Pydantic validation, one retry with the error) |
+| `core/intent/` | Goal box: `spec` (IntentSpec, GoalPlan, Question, task catalogue), `view` (tables a task can use), `rules` (generic cues, column and table name matching, time phrases, unknown words), `interpret_llm` (catalogue prompt, GoalProposal schema), `complete` (validation, corrections, defaults as assumptions, questions, summary), `engine` (hybrid interpret, suggestions) |
 | `core/kpi/` | KPI layer: `config` (YAML schema, validation with readable errors, roles with per-table columns), `evaluate` (filters, aggregations, ratios, periods, breakdowns, unavailable reasons, partial-period check), `starter` (discover fitting domain files, generate a starter file) |
 | `core/why/` | Why-analysis: `change` (periods, comparison, breakdown with mix / rate, drill-down chain and narrative), `attention` (group history, unusual groups, attention ranking), `engine` (explain-by and attention options, orchestration) |
 | `core/segment/` | Segmentation: `units` (rows or per-key aggregation, feature choice), `correlation` (Spearman, redundant pairs, VIF, Cramér's V), `cluster` (preparation, k-means with silhouette, bands, profiles and names, PCA map), `anomaly` (Isolation Forest, robust-z reasons), `engine` (orchestration) |
@@ -285,6 +287,32 @@ flowchart LR
 | Breakdown | Both numerator and denominator are grouped by the role's column in their own sheet; missing role → KPI unavailable for that breakdown |
 | Starter file | Repeated keys → roles named after their entity, event date → `date`, small categories → roles; KPIs: row count, totals and averages of row-level measures, shares of small categories |
 
+## Goal box
+
+```mermaid
+flowchart LR
+    T[Goal in plain words] --> R[Rules<br/>cues + column/table names]
+    R -->|sure| V
+    R -->|unsure: unknown words,<br/>unclear task| L[Language model<br/>Ollama / Azure OpenAI]
+    L -->|GoalProposal JSON<br/>schema-checked| M[Merge<br/>model fields + rule matches]
+    M --> V[Validate and complete<br/>columns, roles, defaults]
+    V --> P[GoalPlan<br/>summary · choices · questions · options]
+    P --> C[Editable card / API]
+    C -->|edit| V
+    C -->|Run| S[service.run_goal → existing pipeline job]
+    D[Data] --> E[Suggestions<br/>each task validated with defaults] --> C
+```
+
+| Decision | Why |
+|---|---|
+| Rules first, model only when unsure | Fast, free and exact on the data's own names; the model is needed only for other words, so it runs rarely and the box works without it |
+| One validator for every source | Rules, model output, suggestions and user edits all pass the same checks; a model can never pass a column that doesn't exist |
+| Generic cues only | English task words (*forecast, why, plan, rank*) and name tokens; domain synonyms would break genericity, so they are left to the model |
+| Partial name matches are "soft" | A guess from part of a name falls back to the default instead of raising a question; a full match that doesn't fit raises one |
+| Unknown words are reported | "Not understood: 'clients'" instead of silently ignoring part of the goal |
+| Defaults listed as choices | The user sees every automatic decision and can change it on the card |
+| Same pipelines as the tabs | A goal starts the existing job; results open in the matching tab; nothing new computes numbers |
+
 ## HTTP API
 
 ```mermaid
@@ -296,6 +324,7 @@ flowchart LR
     A -->|POST → job_id| J[Background jobs]
     J -->|GET /jobs/id| A
     A --> R[(models/ registry)]
+    A --> G[Goal endpoints<br/>interpret · check · run · suggestions]
 ```
 
 | Decision | Why |

@@ -173,6 +173,70 @@ class KpiRequest(BaseModel):
     group_role: str | None = None
 
 
+class LlmStatus(BaseModel):
+    provider: str | None
+    model: str | None
+    available: bool
+    detail: str
+
+
+class GoalText(BaseModel):
+    text: str = Field(..., examples=["forecast revenue by region for the next 6 months"])
+
+
+class GoalSpec(BaseModel):
+    """A goal as structured fields; empty fields get automatic choices."""
+
+    task: Literal["rank", "classify", "regress", "recommend", "forecast", "segment", "why", "ask"] | None = None
+    sheet: str | None = None
+    target: str | None = None
+    time: str | None = None
+    measure: str | None = None
+    aggregation: str | None = None
+    group: str | None = None
+    freq: Literal["D", "W", "M", "Q"] | None = None
+    horizon: int | None = None
+    compare: Literal["previous", "year"] | None = None
+    dimensions: list[str] | None = None
+    attention: str | None = None
+    user: str | None = None
+    item: str | None = None
+    outcome: str | None = None
+    period: Literal["days", "month"] | None = None
+    days: int | None = None
+    unit: str | None = None
+    features: list[str] | None = None
+    question: str | None = None
+
+
+class GoalQuestion(BaseModel):
+    field: str
+    text: str
+    options: list[Any] = []
+
+
+class GoalPlanOut(BaseModel):
+    spec: GoalSpec
+    text: str
+    source: str
+    title: str
+    summary: str
+    ready: bool
+    tab: str | None
+    assumptions: list[str]
+    warnings: list[str]
+    questions: list[GoalQuestion]
+    options: dict[str, list[Any]]
+    llm_error: str | None = None
+
+
+class GoalRun(BaseModel):
+    tab: str | None
+    job_id: str | None = None
+    status_url: str | None = None
+    answer: AskResponse | None = None
+
+
 class DomainInfo(BaseModel):
     name: str
     file: str

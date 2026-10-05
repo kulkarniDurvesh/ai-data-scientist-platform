@@ -54,6 +54,11 @@ docker compose up --build         # API on :8000 and dashboard on :8050
 | GET | `/domains?dataset_id=` | Domain files and how many of their KPIs a dataset supports |
 | POST | `/datasets/{id}/kpis` | `{domain}` (file name) or `{domain_yaml}` (inline), `freq`, `group_role` → KPIs, breakdown, trend, unavailable |
 | GET | `/datasets/{id}/kpis/starter` | A starter domain file for the dataset |
+| GET | `/llm/status?refresh=` | Which language model is in use (Ollama, Azure OpenAI or none, with the reason) |
+| GET | `/datasets/{id}/goals/suggestions` | Goals the dataset supports, each validated and ready to run |
+| POST | `/datasets/{id}/goals/interpret` | `{text}` → plan: spec, summary, choices made, warnings, questions, allowed options per field |
+| POST | `/datasets/{id}/goals/check` | An edited spec (e.g. answers to the questions) → validated plan |
+| POST | `/datasets/{id}/goals/run` | A complete spec → `{tab, job_id, status_url}` (poll the job) or `{tab, answer}` for questions |
 
 ## Examples
 
@@ -110,11 +115,29 @@ var plan = await api.GetFromJsonAsync<JsonElement>($"/datasets/{id}/recommend/la
 
 For typed models, generate a client from `/openapi.json` instead of using `JsonElement`.
 
+### Goal box: plain words → plan → run
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/datasets/8f1c.../goals/interpret \
+     -H "Content-Type: application/json" \
+     -d '{"text": "plan calls to doctors for each MR next month"}'
+# -> {"ready": true, "tab": "recommend", "summary": "Plan which 'DoctorId' each 'MRId' should contact next month ...",
+#     "spec": {"task": "recommend", "sheet": "Visits", "user": "MRId", "item": "DoctorId", ...},
+#     "assumptions": ["Date column: 'VisitDate' (chosen automatically).", ...], "questions": [], ...}
+
+# Not ready? Answer the questions by editing the spec, check it again, then run it:
+curl -s -X POST http://127.0.0.1:8000/datasets/8f1c.../goals/run \
+     -H "Content-Type: application/json" -d '<the spec from the plan>'
+```
+
 ## Security and settings
 
 | Variable | Effect |
 |---|---|
 | `AIDS_API_KEY` | When set, every request needs the header `X-API-Key: <value>` (otherwise `401`) |
 | `AIDS_CORS_ORIGINS` | Comma-separated origins allowed by CORS, e.g. `http://localhost:4200` for an Angular dev server (default `*`) |
+| `AIDS_LLM_PROVIDER` | `auto` (default: Azure OpenAI if configured, else Ollama if running, else none), `ollama`, `azure` or `none` |
+| `AIDS_LLM_MODEL`, `AIDS_OLLAMA_HOST` | Ollama model tag (default `qwen3.5:4b`) and address (default `http://127.0.0.1:11434`) |
+| `AIDS_AZURE_OPENAI_ENDPOINT`, `_DEPLOYMENT`, `_KEY`, `_API_VERSION` | Azure OpenAI settings (API version default `2024-10-21`) |
 
 Planned (Phase 11): Entra ID sign-in and role-based data scope instead of a shared key.

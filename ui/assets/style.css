@@ -426,6 +426,7 @@ body {
 
 .message-info { background: var(--info-soft); color: var(--text-primary); }
 .message-error { background: var(--critical-soft); color: var(--critical); }
+.message-warning { background: var(--warning-soft); color: var(--warning); }
 .message-success { background: var(--success-soft); color: var(--success); }
 
 .empty-state {
@@ -509,3 +510,17 @@ body {
 
 .why-steps { margin: 0 0 0 20px; display: flex; flex-direction: column; gap: 10px; }
 .why-step { line-height: 1.5; color: var(--text-primary); }
+
+/* ---------- Goal box ---------- */
+.goal-input { flex: 1; min-height: 64px; font-size: 15px; padding: 10px 12px; resize: vertical; font-family: inherit; }
+.goal-llm { color: var(--text-muted); font-size: 12px; margin: 8px 0 4px; }
+.goal-card { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.goal-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.goal-head .card-title { margin: 0; }
+.goal-quote { color: var(--text-muted); margin: 0; font-style: italic; }
+.goal-summary { font-weight: 600; margin: 0 0 8px; }
+.goal-card .message { margin: 6px 0; }
+.goal-assumptions { font-size: 13px; color: var(--text-muted); }
+.goal-assumptions summary { cursor: pointer; margin-bottom: 4px; }
+.goal-assumptions li { margin-left: 18px; }
+.goal-card > .btn { align-self: flex-start; }

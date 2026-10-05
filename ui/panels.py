@@ -2450,3 +2450,243 @@ def kpi_trend_card(report, label: str, summary) -> html.Div:
     apply_theme(figure, height=320)
     figure.update_yaxes(title_text=label + (" (%)" if fmt == "percent" else ""), ticksuffix="%" if fmt == "percent" else "")
     return ui.figure_card(label, figure, dict(zip(summary["KPI"], summary["Definition"])).get(label, ""))
+
+
+# ----------------------------------------------------------------------
+# Goal (free-text goal box)
+# ----------------------------------------------------------------------
+
+GOAL_NONE = "__none__"
+GOAL_FIELDS = {
+    "rank": ["target"],
+    "classify": ["target"],
+    "regress": ["target"],
+    "recommend": ["user", "item", "time", "outcome", "period", "days"],
+    "forecast": ["time", "measure", "group", "freq", "horizon"],
+    "segment": ["unit", "features"],
+    "why": ["time", "measure", "compare", "dimensions", "attention"],
+    "ask": ["question"],
+}
+GOAL_LABELS = {
+    "target": "Column to predict",
+    "user": "Who acts (user)",
+    "item": "What they act on (item)",
+    "time": "Date column",
+    "outcome": "Outcome column",
+    "period": "Plan for",
+    "days": "Days",
+    "measure": "Measure",
+    "group": "Split by",
+    "freq": "Period",
+    "horizon": "Periods ahead",
+    "unit": "Unit",
+    "features": "Features (empty = all suitable)",
+    "compare": "Compare with",
+    "dimensions": "Drill into (empty = all suitable)",
+    "attention": "Rank entities",
+    "question": "Question",
+}
+GOAL_OPTIONAL = {"group", "unit", "attention"}
+GOAL_MULTI = {"features", "dimensions"}
+FREQ_LABELS = {"D": "Day", "W": "Week", "M": "Month", "Q": "Quarter"}
+GOAL_SOURCES = {
+    "rules": "Read with rules",
+    "language model": "Read with the language model",
+    "suggestion": "Suggested from the data",
+    "edited": "Edited",
+}
+
+
+def goal_panel(bundle: DatasetBundle, text: str | None = None) -> html.Div:
+    from core.intent import TASKS
+    from core.llm import provider_status
+
+    status = provider_status()
+    if status["available"]:
+        llm_line = f"Language model: {status['provider']} ({status['model']}), used when the rules are unsure."
+    else:
+        llm_line = f"No language model: {status['detail']} The card lets you adjust every choice."
+
+    suggestions = bundle.goal_suggestions()
+    chips = [
+        html.Button(plan.title, id={"type": "goal-suggest", "index": index}, n_clicks=0, className="chip",
+                    title=plan.summary)
+        for index, plan in enumerate(suggestions)
+    ]
+    example = suggestions[1].title if len(suggestions) > 1 else (suggestions[0].title if suggestions else "")
+    example = example[:1].lower() + example[1:]
+
+    # A goal passed in the link (?tab=goal&goal=...) is read straight away.
+    plan = bundle.interpret_goal(text) if text else None
+
+    return html.Div(
+        [
+            dcc.Store(id="goal-plan", data=plan.to_dict() if plan else None),
+            dcc.Store(id="goal-job"),
+            dcc.Interval(id="goal-poll", interval=1000, disabled=True),
+            ui.section(
+                "What do you want to build?",
+                html.Div(
+                    [
+                        html.Div(
+                            [
+                                dcc.Textarea(
+                                    id="goal-text",
+                                    placeholder="Describe your goal in your own words, e.g. " + example,
+                                    value=text or "",
+                                    className="input goal-input",
+                                ),
+                                html.Button("Understand", id="goal-go", n_clicks=0, className="btn btn-primary"),
+                            ],
+                            className="ask-row",
+                        ),
+                        html.Div(llm_line, className="goal-llm"),
+                        html.Div(
+                            [html.Span("Suggested for this data:", className="suggest-label")] + chips,
+                            className="suggestions",
+                        ) if chips else None,
+                    ],
+                    className="card",
+                ),
+                "Say what you want in plain words, or pick a suggestion. The goal becomes "
+                "a plan you can check and change before anything runs: every column is "
+                "checked against the data and every number is computed by the pipelines. "
+                "Possible goals: " + "; ".join(info["label"].lower() for info in TASKS.values()) + ".",
+            ),
+            html.Div(goal_card(bundle, plan) if plan else None, id="goal-card"),
+            html.Div(id="goal-result"),
+        ]
+    )
+
+
+def goal_card(bundle: DatasetBundle, plan) -> html.Div:
+    from core.intent import TASKS
+
+    view = bundle.goal_view()
+    task_options = [{"label": TASKS[t]["label"], "value": t} for t in plan.options.get("task", list(TASKS))]
+    sheets = plan.options.get("sheet") or []
+
+    head = [_dropdown("goal-task", "Goal", task_options, plan.spec.task, width="250px")]
+    if len(view.sheets) > 1 and sheets:
+        head.append(_dropdown(
+            "goal-sheet", "Table",
+            [{"label": view.label(s), "value": s or CURRENT_SHEET} for s in sheets],
+            plan.spec.sheet or CURRENT_SHEET, width="220px",
+        ))
+
+    return html.Div(
+        [
+            html.Div(
+                [
+                    html.H3(plan.title or "Your goal", className="card-title"),
+                    html.Span(GOAL_SOURCES.get(plan.source, plan.source), className="badge"),
+                ],
+                className="goal-head",
+            ),
+            html.P(f"“{plan.text}”", className="goal-quote") if plan.text else None,
+            html.Div(head, className="target-picker"),
+            html.Div(goal_fields(plan), id="goal-fields"),
+            html.Div(goal_check(plan), id="goal-check"),
+            html.Button("Run", id="goal-run", n_clicks=0, className="btn btn-primary"),
+        ],
+        className="card goal-card",
+    )
+
+
+def goal_fields(plan) -> html.Div:
+    spec = plan.spec
+    if spec.task is None:
+        return html.Div()
+
+    controls = []
+    for name in GOAL_FIELDS.get(spec.task, []):
+        component_id = {"type": "goal-field", "field": name}
+        label = GOAL_LABELS[name]
+        value = getattr(spec, name)
+
+        if name == "question":
+            controls.append(html.Div(
+                [html.Label(label, className="field-label"),
+                 dcc.Input(id=component_id, value=value or "", className="input", style={"width": "480px"})],
+                className="field",
+            ))
+            continue
+        if name in ("days", "horizon"):
+            controls.append(_number(component_id, label, value, ""))
+            continue
+
+        if name == "period":
+            options = [{"label": "Next month, day by day", "value": "month"}, {"label": "Next N days", "value": "days"}]
+        elif name == "freq":
+            options = [{"label": FREQ_LABELS[f], "value": f} for f in plan.options.get("freq", list(FREQ_LABELS))]
+        elif name == "compare":
+            options = [{"label": "Previous period", "value": "previous"}, {"label": "Same period last year", "value": "year"}]
+        else:
+            values = list(plan.options.get(name, []))
+            if name == "measure":
+                values = values + ([ROW_COUNT] if ROW_COUNT not in values else [])
+            options = [{"label": "Number of rows" if v == ROW_COUNT else str(v), "value": v} for v in values]
+            if name in GOAL_OPTIONAL:
+                none_label = {"group": "No split", "unit": "Each row", "attention": "None"}[name]
+                options = [{"label": none_label, "value": GOAL_NONE}] + options
+                value = GOAL_NONE if value is None else value
+
+        width = "320px" if name in GOAL_MULTI else "210px"
+        controls.append(_dropdown(component_id, label, options, value, multi=name in GOAL_MULTI, width=width))
+
+    return html.Div(controls, className="target-picker")
+
+
+def goal_spec_from_fields(base: dict, ids: list[dict], values: list) -> dict:
+    """The spec after the user's edits on the card."""
+
+    spec = dict(base)
+    for component_id, value in zip(ids, values):
+        name = component_id["field"]
+        if value == GOAL_NONE or value in ("", []):
+            value = None
+        if name in ("days", "horizon") and value is not None:
+            value = int(value)
+        spec[name] = value
+    return spec
+
+
+def goal_check(plan) -> html.Div:
+    blocks = []
+    if plan.summary:
+        blocks.append(html.P(plan.summary, className="goal-summary"))
+    for question in plan.questions:
+        shown = ""
+        if question.options:
+            names = [str(o) for o in question.options[:8]]
+            shown = " Options: " + ", ".join(names) + ("..." if len(question.options) > 8 else "")
+        blocks.append(ui.message(question.text + shown, "warning"))
+    for warning in plan.warnings:
+        blocks.append(ui.message(warning, "info"))
+    if plan.llm_error:
+        blocks.append(ui.message(f"The language model could not be used ({plan.llm_error}); read with rules instead.", "info"))
+    if plan.assumptions:
+        blocks.append(html.Details(
+            [html.Summary(f"Choices made ({len(plan.assumptions)})")] + [html.Li(a) for a in plan.assumptions],
+            className="goal-assumptions", open=True,
+        ))
+    return html.Div(blocks)
+
+
+def goal_progress_view(job: dict, label: str) -> html.Div:
+    return html.Div([html.H4(f"Running: {label}", className="card-title"), model_progress_view(job)], className="card")
+
+
+def goal_done_view(result, summary: str, tab: str, label: str) -> html.Div:
+    steps = getattr(result, "steps", None)
+    text = " ".join(step.text for step in steps) if steps else (getattr(result, "summary", "") or "")
+    return html.Div(
+        [
+            html.H4("Done", className="card-title"),
+            html.P(summary, className="goal-quote"),
+            html.P(text) if text else None,
+            html.Button(f"Open the full results in {label}", id={"type": "goal-open", "tab": tab},
+                        n_clicks=0, className="btn btn-primary"),
+        ],
+        className="card",
+    )
