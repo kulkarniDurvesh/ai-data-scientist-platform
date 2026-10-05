@@ -47,7 +47,8 @@ Most EDA tools show charts; this project aims to behave like a **data scientist*
 2. **answers plain-English questions by computing on the data** ("which doctors in Pune North were visited in March 2025?", "pie chart of doctors by specialty");
 3. **prepares a dataset for machine learning** — target rate by segment, feature signal, leakage checks, panel detection and a time-aware train/test split;
 4. **builds models from a goal** — pick *predict a yes/no outcome*, *rank / prioritise* or *predict a number*; it proposes features, excludes leaky columns, compares models against a baseline on an honest split, explains the winner and scores the latest rows;
-5. **recommends next contacts** — learns which interactions succeed from point-in-time history and plans each user's next working days within their group (e.g. daily doctor visits per MR per territory), with a backtest against simple rules.
+5. **recommends next contacts** — learns which interactions succeed from point-in-time history and plans each user's next working days within their group (e.g. daily doctor visits per MR per territory), with a backtest against simple rules;
+6. **forecasts** any measure over time, in total and per group, choosing among statistical and machine-learning models with a rolling backtest against naive baselines, with forecast intervals.
 
 The long-term goal (see [Roadmap](#roadmap)): the user states **what they want to achieve** — *predict, forecast, recommend, segment, find anomalies* — and the platform formulates the problem, trains and evaluates suitable models, and explains the results. An LLM acts as the **orchestrator**; tested Python pipelines do the computation, so numbers are never invented.
 
@@ -63,7 +64,8 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 | 2 | Target-aware EDA: target detection, segment rates, feature signal, leakage checks, time-split advice, report | ✅ Done |
 | 3a | Goal-driven model builder: classification, ranking, regression with explanations, scoring and a model registry | ✅ Done |
 | 3b | Recommendation: next-best-contact model, daily plan per user within their group, backtest | ✅ Done |
-| 3c–3d | Forecasting, clustering, segmentation and anomaly detection | 🔜 Next |
+| 3c | Forecasting: series building, rolling backtest of 7 models vs baselines, forecasts with intervals | ✅ Done |
+| 3d | Clustering, segmentation, anomaly detection, correlation | 🔜 Next |
 | 4–5 | "Why" analysis tools, KPI layer, FastAPI service | 📋 Planned |
 | 6–8 | LLM layer, RAG with citations, agentic AI (AutoML orchestrator, analyst agent, MCP server) | 📋 Planned |
 | 9–11 | Azure (Bicep), .NET SFA integration + Manager Agent, evaluation and governance | 📋 Planned |
@@ -99,6 +101,13 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 <summary><b>Recommend</b> — roles → backtest of strategies → daily plan per user with reasons (click to expand)</summary>
 
 ![Recommend tab](docs/images/recommend.png)
+
+</details>
+
+<details>
+<summary><b>Forecast</b> — measure over time: backtested models, forecast with 80%/95% intervals, per-group series (click to expand)</summary>
+
+![Forecast tab](docs/images/forecast.png)
 
 </details>
 
@@ -159,6 +168,14 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 - **Backtest on held-out weeks:** success rate of the contacts each strategy would prioritise — *Model*, *Most overdue first*, *Highest past success rate*, *Random*.
 - Plan with reasons, summary per group, CSV download.
 
+### Forecasting (Phase 3c)
+- **Any measure over time:** pick a table, a date column and a measure (or *number of rows*), how to combine values (sum, average, distinct count) and an optional split (e.g. per territory). Measures that are fixed per item (a doctor's potential, a product's price) are listed last.
+- **Regular series:** bucketed by day / week / month / quarter (monthly by default for 18+ months of events; snapshot tables keep their own period), gaps filled, an **incomplete last period dropped** so it isn't read as a slump.
+- **Seven candidates:** naive and seasonal-naive baselines, drift, ETS (exponential smoothing), Theta, ARIMA(1,1,1) and a global gradient-boosting model on lag features across all series.
+- **Rolling-origin backtest:** several past cut-offs, each forecasting the full horizon; MAE, sMAPE and **MASE** (below 1 beats seasonal naive). The best non-baseline model by MASE is used, with a warning if no model beats the baselines.
+- **Forecasts with approximate 80% / 95% intervals** from the model's backtest errors; trend and seasonality strength from STL — only reported with three or more full seasons, because two cycles make the seasonal estimate meaningless.
+- Chart per series (total or any group), model comparison, forecast table and CSV download.
+
 ## How it works
 
 ```mermaid
@@ -174,7 +191,8 @@ flowchart LR
     T --> M[Model builder<br/>goal → split → candidates → explain → score]
     W --> R[Recommender<br/>history → success model → plan → backtest]
     M --> R
-    D & E & F & Q & T & M & R --> UI[Dash dashboard]
+    W --> FC[Forecaster<br/>series → backtest → forecast + intervals]
+    D & E & F & Q & T & M & R & FC --> UI[Dash dashboard]
 ```
 
 **Ask pipeline:** the question is parsed into intent, entity, filters, dates and chart type using the dataset's own column names and values → a validated query plan → executed with pandas → turned into a sentence, a table and (if useful) a chart. If the selected sheet can't answer, every linked sheet is tried and the best one is used.
@@ -207,7 +225,7 @@ python app.py --file data.xlsx --sheet Visits  # pick an Excel sheet
 python app.py --port 8060 --debug              # other port, Dash dev tools
 ```
 
-Then open <http://127.0.0.1:8050>. Deep links open a tab directly: `?tab=overview|auto|builder|ask|target|model|recommend|board`.
+Then open <http://127.0.0.1:8050>. Deep links open a tab directly: `?tab=overview|auto|builder|ask|target|model|recommend|forecast|board`.
 
 ## Usage examples
 
@@ -254,6 +272,19 @@ Recommend tab on the *Visits* sheet (success = *Order Placed* or *Interested*, p
 
 > Prioritising by the model nearly triples the success rate of visits. In this synthetic data each doctor's propensity is stable, so the simple *past success rate* rule performs almost as well — the backtest makes that visible instead of hiding it. *Most overdue first* does not help. The plan: 384 visits for 50 MRs, each within their territory, at most 6 per day, at least 12 days between visits to the same doctor.
 
+Forecast tab, *OrderDetails* sheet, monthly **estimated revenue** split by territory, 3 months ahead (24 months of history):
+
+| Model | MASE | sMAPE |
+|---|---|---|
+| **ARIMA(1,1,1) (chosen)** | **0.70** | 51% |
+| Theta | 0.71 | 52% |
+| ETS | 0.72 | 53% |
+| Gradient boosting (lags, all series) | 0.79 | 55% |
+| Naive (baseline) | 0.89 | 72% |
+| Seasonal naive (baseline) | 0.93 | 67% |
+
+> Total forecast for Jan–Mar 2026: about 254k, with 80% and 95% intervals. Monthly **visit counts** from the *Visits* sheet forecast with sMAPE ≈ 3% (ETS). Errors per territory are larger than for the total because the per-territory series are small and volatile.
+
 ## Project structure
 
 ```
@@ -271,6 +302,7 @@ Recommend tab on the *Visits* sheet (success = *Order Placed* or *Interested*, p
 │   ├── target_analysis.py     # target-aware EDA + Markdown report
 │   ├── modeling/              # goal → features → split → candidates → explain → score → registry
 │   ├── recommend/             # roles → point-in-time history → success model → daily plan → backtest
+│   ├── forecast/              # series → models → rolling backtest → forecast with intervals
 │   └── NLP/                   # Ask engine: parser → planner → engine → answer
 ├── visualization/             # chart specs, recommender, engine, renderer, validator
 ├── ui/                        # Dash app: layout, callbacks, panels, state, styles
@@ -292,7 +324,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-The suite (65 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, backtest beats random, flat tables without lookup sheets) and dashboard rendering.
+The suite (72 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage) and dashboard rendering.
 
 ## Roadmap
 
@@ -300,7 +332,8 @@ The suite (65 tests) covers schema inference, data quality, charts, the Ask engi
 |---|---|---|
 | ✅ 3a | Goal-driven model builder: classification, ranking, regression | scikit-learn |
 | ✅ 3b | Recommendation: next-best-contact model, daily plans, backtest | scikit-learn |
-| **3c–3d** | **Forecasting**, clustering, segmentation, anomaly detection | statsmodels, scikit-learn |
+| ✅ 3c | Forecasting with rolling backtests and intervals | statsmodels, scikit-learn |
+| **3d** | Clustering, segmentation, anomaly detection, correlation | scikit-learn |
 | 4 | "Why" tools (change decomposition, period comparison, attention ranking) and a KPI definitions layer | pandas |
 | 5 | Python service with typed endpoints | FastAPI, Pydantic, Docker |
 | 6 | LLM layer: one interface for local and cloud models, structured output, LLM fallback for the Ask box, narratives | Ollama, Azure OpenAI |
@@ -316,7 +349,7 @@ Details, done-criteria and learning goals per phase: [docs/ROADMAP.md](docs/ROAD
 
 | Layer | Now | Planned |
 |---|---|---|
-| Analysis / ML | pandas, NumPy, SciPy, scikit-learn | statsmodels |
+| Analysis / ML | pandas, NumPy, SciPy, scikit-learn, statsmodels | – |
 | UI | Dash, Plotly | Angular (SFA app) |
 | Service | — | FastAPI, Docker |
 | AI | Rule-based NL engine | Ollama / Azure OpenAI, RAG, agents, MCP |

@@ -10,6 +10,9 @@ from dash import dcc, html
 from core.schema_inference import format_number, humanize
 import plotly.graph_objects as go
 
+import numpy as np
+
+from core.forecast import DEFAULT_HORIZON, ROW_COUNT, TOTAL, default_aggregation, suggest_freq
 from core.modeling import GOAL_TYPES, list_models, target_options
 from core.target_analysis import eligible_targets
 from visualization.chart_renderer import SERIES_COLORS, apply_theme
@@ -1443,4 +1446,262 @@ def _backtest_card(result) -> html.Div:
         "Success rate of the contacts each strategy picks",
         figure,
         "Higher is better. 'Random' is the success rate without prioritisation.",
+    )
+
+
+# ----------------------------------------------------------------------
+# Forecast
+# ----------------------------------------------------------------------
+
+FREQ_OPTIONS = [
+    {"label": "Day", "value": "D"},
+    {"label": "Week", "value": "W"},
+    {"label": "Month", "value": "M"},
+    {"label": "Quarter", "value": "Q"},
+]
+AGG_OPTIONS = [
+    {"label": "Sum", "value": "sum"},
+    {"label": "Average", "value": "mean"},
+    {"label": "Distinct count", "value": "nunique"},
+]
+NO_SPLIT = "__none__"
+
+
+def forecast_panel(bundle: DatasetBundle) -> html.Div:
+    sheets = bundle.forecast_sheets()
+
+    if not sheets:
+        return ui.empty_state(
+            "Nothing to forecast",
+            "Forecasting needs a table with a date column and at least 20 rows.",
+        )
+
+    # After a refresh, show the controls of the forecast on screen.
+    last = bundle.latest_forecast
+    sheet = bundle.latest_forecast_sheet if last and bundle.latest_forecast_sheet in sheets else sheets[0]
+
+    picker = html.Div(
+        [
+            html.Label("Table", className="field-label"),
+            dcc.Dropdown(
+                id="fc-sheet",
+                options=[{"label": name if name else bundle.name, "value": name or CURRENT_SHEET} for name in sheets],
+                value=sheet or CURRENT_SHEET,
+                clearable=False,
+                style={"minWidth": "200px"},
+            ),
+        ],
+        className="field",
+    )
+
+    return html.Div(
+        [
+            dcc.Store(id="fc-job"),
+            dcc.Interval(id="fc-poll", interval=1000, disabled=True),
+            ui.section(
+                "Forecast",
+                html.Div(
+                    [
+                        html.Div([picker], className="target-picker"),
+                        html.Div(
+                            forecast_controls_view(bundle, sheet, last.spec if last and sheet == bundle.latest_forecast_sheet else None),
+                            id="fc-controls",
+                        ),
+                    ],
+                    className="card",
+                ),
+                "Forecast a measure over time, in total and per group. Several "
+                "models are compared with simple baselines on past periods "
+                "(rolling backtest); the best one forecasts the next periods "
+                "with approximate 80% and 95% intervals.",
+            ),
+            html.Div(
+                forecast_results_view(bundle.latest_forecast) if bundle.latest_forecast else None,
+                id="fc-results",
+            ),
+        ]
+    )
+
+
+def forecast_controls_view(bundle: DatasetBundle, sheet: str | None, spec=None) -> html.Div:
+    options = bundle.forecast_options(sheet)
+    frame, schema, _, _ = bundle.interaction_context(sheet)
+
+    date = spec.time if spec else options["dates"][0]
+    measure = spec.measure if spec else options["measures"][0]
+    freq = spec.freq if spec else suggest_freq(frame[date])
+    horizon = spec.horizon if spec else DEFAULT_HORIZON[freq]
+    aggregation = (
+        ("sum" if spec.aggregation == "count" else spec.aggregation) if spec
+        else default_aggregation(schema, measure) if measure != ROW_COUNT else "sum"
+    )
+    group = spec.group if spec and spec.group else NO_SPLIT
+
+    def measure_label(column: str) -> str:
+        return "Number of rows" if column == ROW_COUNT else column
+
+    return html.Div(
+        [
+            html.Div(
+                [
+                    _dropdown("fc-date", "Date", [{"label": c, "value": c} for c in options["dates"]], date),
+                    _dropdown("fc-measure", "Measure", [{"label": measure_label(c), "value": c} for c in options["measures"]], measure, width="220px"),
+                    _dropdown("fc-agg", "Combine values by", AGG_OPTIONS, aggregation),
+                    _dropdown(
+                        "fc-group", "Split by",
+                        [{"label": "No split (total only)", "value": NO_SPLIT}] + [{"label": c, "value": c} for c in options["groups"]],
+                        group, width="220px",
+                    ),
+                ],
+                className="target-picker",
+            ),
+            html.Div(
+                [
+                    _dropdown("fc-freq", "Period", FREQ_OPTIONS, freq, width="140px"),
+                    _number("fc-horizon", "Periods ahead", horizon, str(DEFAULT_HORIZON[freq])),
+                    html.Button("Forecast", id="fc-build", n_clicks=0, className="btn btn-primary"),
+                ],
+                className="target-picker",
+            ),
+            html.P(
+                "Measures recorded on each row come first; columns that are fixed "
+                "per item (looked up, or constant per key) are listed last because "
+                "adding them up over time means little.",
+                className="card-explanation",
+            ),
+        ]
+    )
+
+
+def forecast_results_view(result) -> html.Div:
+    table = result.metrics.set_index("Model")
+    best = table.loc[result.best_model]
+    baselines = table[table["Type"] == "baseline"]
+    reference = baselines["MASE"].min() if len(baselines) else float("nan")
+    total = result.forecasts[result.forecasts["Series"] == TOTAL]
+    diagnostics = result.diagnostics
+
+    tiles = [
+        ui.kpi_tile("Chosen model", result.best_model, f"computed in {result.seconds:.0f}s"),
+        ui.kpi_tile("Backtest MASE", f"{best['MASE']:.2f}", f"best baseline {reference:.2f} · below 1 beats seasonal naive"),
+        ui.kpi_tile("Backtest sMAPE", f"{best['sMAPE']:.1%}", "average % error"),
+        ui.kpi_tile(f"Next {len(total)} period(s)", format_number(total["Forecast"].sum()), result.measure_label()),
+    ]
+    if not np.isnan(diagnostics.get("trend_strength", np.nan)):
+        tiles.append(ui.kpi_tile(
+            "Trend / seasonality",
+            f"{diagnostics['trend_strength']:.2f} / {diagnostics['seasonal_strength']:.2f}",
+            "0 = none, 1 = strong",
+        ))
+
+    notes = [ui.message(result.summary, "success")] + [ui.message(text, "info") for text in result.notes]
+    names = list(result.series)
+
+    forecast_table = result.forecasts.copy()
+    forecast_table["Period"] = forecast_table["Period"].dt.strftime("%Y-%m-%d")
+    for column in ("Forecast", "Low 80%", "High 80%", "Low 95%", "High 95%"):
+        forecast_table[column] = forecast_table[column].round(2)
+
+    sections = [
+        html.H2(f"Results: {result.measure_label()} by {dict((o['value'], o['label']) for o in FREQ_OPTIONS)[result.spec.freq].lower()}", className="section-title"),
+        html.Div(tiles, className="kpi-row"),
+        html.Div(notes),
+        ui.section(
+            "Forecast",
+            html.Div(
+                [
+                    html.Div(
+                        [_dropdown("fc-series", "Series", [{"label": n, "value": n} for n in names], TOTAL, width="240px")],
+                        className="target-picker",
+                    ),
+                    html.Div(forecast_chart(result, TOTAL), id="fc-chart"),
+                ],
+                className="card",
+            ),
+        ),
+        ui.section(
+            "Model comparison (rolling backtest)",
+            ui.data_table(result.metrics, page_size=8),
+            "Each model forecast the next periods from several past cut-off "
+            "points; errors are averaged over cut-offs and series. MASE below 1 "
+            "means better than repeating last season's values.",
+        ),
+    ]
+
+    if result.decomposition is not None:
+        sections.append(ui.section("Trend and seasonality (total)", html.Div(_decomposition_card(result), className="chart-grid")))
+
+    sections.append(
+        ui.section(
+            "Forecast table",
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Button("Download forecast (CSV)", id="fc-download-button", n_clicks=0, className="btn"),
+                            dcc.Download(id="fc-download"),
+                        ],
+                        className="target-picker",
+                    ),
+                    ui.data_table(forecast_table, page_size=12),
+                ],
+                className="card",
+            ),
+        )
+    )
+
+    return html.Div(sections)
+
+
+def forecast_chart(result, name: str) -> html.Div:
+    history = result.series.get(name)
+    if history is None:
+        return ui.message("Unknown series.")
+
+    future = result.forecasts[result.forecasts["Series"] == name]
+    figure = go.Figure()
+
+    figure.add_trace(go.Scatter(
+        x=list(future["Period"]) + list(future["Period"])[::-1],
+        y=list(future["High 95%"]) + list(future["Low 95%"])[::-1],
+        fill="toself", fillcolor="rgba(42,120,214,0.10)", line={"width": 0}, mode="lines",
+        name="95% interval", hoverinfo="skip",
+    ))
+    figure.add_trace(go.Scatter(
+        x=list(future["Period"]) + list(future["Period"])[::-1],
+        y=list(future["High 80%"]) + list(future["Low 80%"])[::-1],
+        fill="toself", fillcolor="rgba(42,120,214,0.22)", line={"width": 0}, mode="lines",
+        name="80% interval", hoverinfo="skip",
+    ))
+    figure.add_trace(go.Scatter(x=history.index, y=history.values, mode="lines+markers",
+                                name="Actual", line={"color": "#52514e", "width": 2}, marker={"size": 4}))
+    figure.add_trace(go.Scatter(
+        x=[history.index[-1]] + list(future["Period"]),
+        y=[history.values[-1]] + list(future["Forecast"]),
+        mode="lines+markers", name=f"Forecast ({result.best_model})",
+        line={"color": SERIES_COLORS[0], "width": 3, "dash": "dot"},
+    ))
+    apply_theme(figure, height=380)
+    figure.update_yaxes(title_text=result.measure_label())
+
+    return ui.figure_card(
+        f"{result.measure_label()} — {name}",
+        figure,
+        "Grey: history. Blue dotted: forecast, with shaded 80% and 95% "
+        "intervals estimated from the model's backtest errors.",
+    )
+
+
+def _decomposition_card(result) -> html.Div:
+    parts = result.decomposition
+    figure = go.Figure()
+    for column, color in (("Observed", "#52514e"), ("Trend", SERIES_COLORS[0]), ("Seasonal", SERIES_COLORS[1])):
+        figure.add_trace(go.Scatter(x=parts.index, y=parts[column], mode="lines", name=column, line={"color": color}))
+    apply_theme(figure, height=340)
+
+    return ui.figure_card(
+        "STL decomposition",
+        figure,
+        "The total split into a smooth trend and a repeating seasonal pattern; "
+        "what is left is noise.",
     )

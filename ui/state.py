@@ -32,6 +32,14 @@ from core.NLP.query_engine import QueryEngine
 from core.NLP.query_parser import QueryParser, code_key
 from core.NLP.query_plan import QueryPlanner
 from core.schema_inference import DatasetSchema, infer_schema, name_tokens, same_word
+from core.forecast import (
+    ForecastResult,
+    SeriesSpec,
+    build_forecast,
+    date_options,
+    group_options as series_group_options,
+    measure_options,
+)
 from core.modeling import GoalSpec, ModelResult, build_model, propose_goal
 from core.recommend import (
     InteractionRoles,
@@ -99,6 +107,8 @@ class DatasetBundle:
     _model_jobs: dict[str, dict[str, Any]] = field(default_factory=dict)
     latest_model: ModelResult | None = None
     latest_recommendation: RecommendResult | None = None
+    latest_forecast: ForecastResult | None = None
+    latest_forecast_sheet: str | None = None
     _contexts: dict[str, "AskContext"] = field(default_factory=dict)
     _lock: threading.RLock = field(default_factory=threading.RLock)
 
@@ -198,6 +208,41 @@ class DatasetBundle:
 
         threading.Thread(target=run, daemon=True).start()
         return job_id
+
+    # ------------------------------------------------------------------
+    # Forecasting
+    # ------------------------------------------------------------------
+
+    def forecast_sheets(self) -> list[str | None]:
+        """Sheets with a date column and enough rows, the selected one first."""
+
+        candidates = self.workbook.readable_sheets() if self.workbook is not None else [self.sheet]
+        found = []
+        for sheet in candidates:
+            frame, _, _, _ = self.interaction_context(sheet)
+            if len(frame) >= 20 and date_options(frame):
+                found.append(sheet)
+        return sorted(found, key=lambda sheet: sheet != self.sheet)
+
+    def forecast_options(self, sheet: str | None) -> dict[str, list]:
+        frame, schema, sources, _ = self.interaction_context(sheet)
+        return {
+            "dates": date_options(frame),
+            "measures": measure_options(frame, schema, sources),
+            "groups": series_group_options(frame, schema),
+        }
+
+    def start_forecast_job(self, sheet: str | None, spec: SeriesSpec) -> str:
+        frame, _, _, _ = self.interaction_context(sheet)
+
+        def work(progress):
+            return build_forecast(frame, spec, progress=progress)
+
+        def done(result):
+            self.latest_forecast = result
+            self.latest_forecast_sheet = sheet
+
+        return self._run_job(work, done)
 
     # ------------------------------------------------------------------
     # Recommendation (interaction tables)

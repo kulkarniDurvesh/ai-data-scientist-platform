@@ -10,6 +10,7 @@ This document explains how the platform is organised today and how the planned A
 - [Target analysis](#target-analysis)
 - [Model builder](#model-builder)
 - [Recommender](#recommender)
+- [Forecaster](#forecaster)
 - [Dashboard state](#dashboard-state)
 - [Key design decisions](#key-design-decisions)
 - [Planned architecture](#planned-architecture)
@@ -56,6 +57,7 @@ flowchart TB
 | `core/date_parts.py` | Detect "March 2025", "Q1", "in 2024"; choose the date column from question words; date-part masks |
 | `core/workbook.py` | Load all sheets, detect key links, build enriched (looked-up) frames |
 | `core/target_analysis.py` | Target detection and the target report (segments, feature signal, leakage, panel, split, drift, Markdown) |
+| `core/forecast/` | Forecasting: `series` (spec, bucketing, gap filling, incomplete-period detection, defaults), `models` (naive, seasonal naive, drift, ETS, Theta, ARIMA, global gradient boosting on lags), `evaluate` (rolling-origin backtest, MAE / sMAPE / MASE, interval widths), `engine` (orchestration, STL diagnostics) |
 | `core/recommend/` | Recommendation: `roles` (user / item / time / outcome / success / group detection), `history` (point-in-time features and as-of snapshots), `planner` (daily plans under capacity, gap and group rules), `backtest` (strategy comparison on held-out weeks), `engine` (orchestration) |
 | `core/modeling/` | Goal-driven model builder: `goal` (GoalSpec), `features` (role-based preprocessing), `split` (time / stratified windows), `models` (candidates, metrics, lift), `explain` (permutation importance, per-row reasons), `builder` (orchestration), `registry` (save / list / load) |
 | `core/NLP/query_parser.py` | Question → `ParsedQuery` (intent, entity, filters, dates, group-by, chart type, notes, unresolved values) |
@@ -184,6 +186,28 @@ flowchart LR
 | Universes | Items from the item lookup sheet (all doctors, including never-visited ones) plus any extra items seen in interactions; users from the user lookup sheet; groups from lookup columns or per-key modes |
 | Planner | Per day: as-of scoring, gap filter (real contacts and earlier planned days), per-group round-robin up to capacity; weekends skipped |
 | Backtest | Uses the chosen model's test-window predictions made **before** the final refit, so no test outcome leaks into the comparison |
+
+## Forecaster
+
+```mermaid
+flowchart LR
+    T[Table + SeriesSpec<br/>date · measure · aggregation ·<br/>split · period · horizon] --> S[Series<br/>bucket · fill gaps ·<br/>drop incomplete last period]
+    S --> D[STL diagnostics<br/>3+ seasons only]
+    S --> B[Rolling-origin backtest<br/>7 models × cut-offs × series]
+    B --> C[Choose best by MASE<br/>baselines excluded]
+    C --> F[Refit on all history<br/>forecast h periods]
+    B -->|errors per step| I[80% / 95% intervals]
+    F & I --> O[Chart · tables · CSV]
+```
+
+| Step | Method |
+|---|---|
+| Defaults | Measures ranked: row-level before per-key attributes and lookup columns, then non-ratio, then largest total; period from the date's native grain or its span |
+| Incomplete period | The last period is dropped when the data covers less than 80% of it (event data only) |
+| Backtest | Up to 4 cut-offs near the end, spaced by half the horizon; local models per series, the gradient-boosting model trained across all series (scaled by each series' mean) and forecast recursively |
+| Metrics | MAE, sMAPE, MASE (scaled by each history's in-sample seasonal-naive MAE) |
+| Intervals | Standard deviation of the chosen model's backtest errors per step (pooled and widened with √step when sparse), made non-decreasing; ±1.28σ / ±1.96σ; floored at 0 for non-negative series |
+| Diagnostics | STL (robust) with the season length (12 months, 52 weeks, 7 days, 4 quarters); strength = 1 − Var(remainder) / Var(component + remainder) |
 
 ## Dashboard state
 

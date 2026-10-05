@@ -11,6 +11,7 @@ Start it with `python app.py` (or `python app.py --file data.xlsx`) and open <ht
 - [Target tab](#target-tab)
 - [Build model tab](#build-model-tab)
 - [Recommend tab](#recommend-tab)
+- [Forecast tab](#forecast-tab)
 - [My board tab](#my-board-tab)
 - [Troubleshooting](#troubleshooting)
 
@@ -28,7 +29,7 @@ On load, text columns holding numbers or dates are converted automatically. ID-l
 
 The header shows the file name, rows × columns and the current sheet (e.g. "sheet ML_TrainingData (12 of 12)").
 
-**Deep links:** add `?tab=overview`, `auto`, `builder`, `ask`, `target`, `model`, `recommend` or `board` to the URL to open a tab directly.
+**Deep links:** add `?tab=overview`, `auto`, `builder`, `ask`, `target`, `model`, `recommend`, `forecast` or `board` to the URL to open a tab directly.
 
 ## Overview tab
 
@@ -172,6 +173,37 @@ Plans who should contact what, and when, from an interaction history (e.g. MR vi
 
 ### How the plan is built
 For each working day, every item is scored as of that day; items contacted (or already planned) within the minimum gap are skipped; within each group the best items are dealt out to the group's users in turn until each reaches the daily capacity. Users only get items of their own group.
+
+## Forecast tab
+
+Forecasts a measure over time, in total and per group.
+
+1. **Table** — any sheet with a date column and at least 20 rows (the selected sheet first).
+2. **Date** — the column that places each row in time.
+3. **Measure** — a numeric column, or *Number of rows* to forecast counts (e.g. visits). Measures recorded on each row come first; columns fixed per item (looked up from another sheet, or constant per key) are listed last.
+4. **Combine values by** — sum, average or distinct count (averages are proposed for 0–1 ratios).
+5. **Split by** — optional category (up to 30 groups); each group gets its own series and forecast, plus the total.
+6. **Period** and **Periods ahead** — proposed from the data (snapshot tables keep their period; 18+ months of events → months, 4+ months → weeks, else days).
+
+Press **Forecast** (a few seconds).
+
+### Results
+
+| Part | Meaning |
+|---|---|
+| Chosen model | Best non-baseline model on the rolling backtest |
+| MASE | Error relative to repeating last season's values; **below 1 beats seasonal naive** |
+| sMAPE | Average percentage error (0% perfect); large when values are small or volatile |
+| Forecast chart | History (grey), forecast (blue dotted) and shaded 80% / 95% intervals; switch the series to see each group |
+| Model comparison | Every model's MAE, sMAPE and MASE averaged over cut-off points and series; baselines marked |
+| Trend / seasonality | Strength 0–1 from an STL decomposition, shown only with at least three full seasons (e.g. 36 months) |
+| Forecast table | Every series and period with intervals; download as CSV |
+| Notes | E.g. an incomplete last period that was left out, or no model beating the baselines |
+
+### Good to know
+- The backtest never uses the future: each cut-off fits only on earlier periods.
+- Intervals are approximate: they come from the chosen model's backtest errors and widen with the horizon.
+- A horizon longer than half the history is refused.
 
 ## My board tab
 

@@ -9,6 +9,7 @@ Intelligent EDA dashboard.
         -> Target        training-table EDA: target rate, leakage, split
         -> Build model   goal -> trained, compared, explained model + scores
         -> Recommend     next-best-contact model + daily plan per user + backtest
+        -> Forecast      measure over time: backtested models + forecast intervals
         -> My board      pinned charts from every tab
 """
 
@@ -23,6 +24,7 @@ import pandas as pd
 from dash import ALL, MATCH, Dash, Input, Output, State, ctx, dcc, html, no_update
 
 from core.schema_inference import format_number
+from core.forecast import DEFAULT_HORIZON, ROW_COUNT, SeriesSpec, default_aggregation, suggest_freq
 from core.modeling import save_model
 from core.recommend import PlanSettings, suggest_success
 from core.target_analysis import report_markdown
@@ -34,7 +36,7 @@ from .state import DatasetBundle, store
 
 ASSETS_FOLDER = str(Path(__file__).parent / "assets")
 
-TAB_VALUES = {"overview", "auto", "builder", "ask", "target", "model", "recommend", "board"}
+TAB_VALUES = {"overview", "auto", "builder", "ask", "target", "model", "recommend", "forecast", "board"}
 
 HIDDEN = {"display": "none"}
 SHEET_PICKER = {"display": "flex", "alignItems": "center", "gap": "8px"}
@@ -218,6 +220,17 @@ def _layout(initial_id: str | None) -> html.Div:
                 ),
             ),
             dcc.Tab(
+                label="Forecast",
+                value="forecast",
+                className="tab",
+                selected_className="tab--selected",
+                children=dcc.Loading(
+                    html.Div(id="forecast-panel", className="panel"),
+                    type="dot",
+                    color="var(--accent)",
+                ),
+            ),
+            dcc.Tab(
                 id="board-tab",
                 label="My board",
                 value="board",
@@ -237,6 +250,7 @@ def _layout(initial_id: str | None) -> html.Div:
             dcc.Store(id="target-owner", data=None),
             dcc.Store(id="model-owner", data=None),
             dcc.Store(id="recommend-owner", data=None),
+            dcc.Store(id="forecast-owner", data=None),
             header,
             html.Main(
                 [
@@ -719,6 +733,162 @@ def _register_callbacks(app: Dash) -> None:
             return no_update
 
         return dcc.send_data_frame(bundle.latest_recommendation.plan.to_csv, "visit_plan.csv", index=False)
+
+    # -- Forecast -----------------------------------------------------------
+
+    @app.callback(
+        Output("forecast-panel", "children"),
+        Output("forecast-owner", "data"),
+        Input("tabs", "value"),
+        Input("dataset-id", "data"),
+        State("forecast-owner", "data"),
+    )
+    def show_forecast(tab, dataset_id, owner):
+        if tab != "forecast" or dataset_id is None or owner == dataset_id:
+            return no_update, no_update
+
+        bundle = store.get(dataset_id)
+
+        if bundle is None:
+            return None, None
+
+        return _safe(panels.forecast_panel, bundle), dataset_id
+
+    @app.callback(
+        Output("fc-controls", "children"),
+        Input("fc-sheet", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_fc_sheet(sheet, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None:
+            return no_update
+
+        return _safe(panels.forecast_controls_view, bundle, panels.sheet_from_value(sheet))
+
+    @app.callback(
+        Output("fc-freq", "value"),
+        Output("fc-horizon", "value"),
+        Input("fc-date", "value"),
+        State("fc-sheet", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_fc_date(date, sheet, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None or not date:
+            return no_update, no_update
+
+        frame, _, _, _ = bundle.interaction_context(panels.sheet_from_value(sheet))
+        freq = suggest_freq(frame[date])
+        return freq, DEFAULT_HORIZON[freq]
+
+    @app.callback(
+        Output("fc-agg", "value"),
+        Input("fc-measure", "value"),
+        State("fc-sheet", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_fc_measure(measure, sheet, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None or not measure or measure == ROW_COUNT:
+            return "sum"
+
+        _, schema, _, _ = bundle.interaction_context(panels.sheet_from_value(sheet))
+        return default_aggregation(schema, measure)
+
+    @app.callback(
+        Output("fc-job", "data"),
+        Output("fc-poll", "disabled"),
+        Output("fc-results", "children"),
+        Input("fc-build", "n_clicks"),
+        State("fc-sheet", "value"),
+        State("fc-date", "value"),
+        State("fc-measure", "value"),
+        State("fc-agg", "value"),
+        State("fc-group", "value"),
+        State("fc-freq", "value"),
+        State("fc-horizon", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def build_forecast_job(clicks, sheet, date, measure, aggregation, group, freq, horizon, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if not clicks or bundle is None or not date or not measure:
+            return no_update, no_update, no_update
+
+        spec = SeriesSpec(
+            time=date,
+            measure=measure,
+            aggregation="count" if measure == ROW_COUNT else (aggregation or "sum"),
+            group=None if group in (None, panels.NO_SPLIT) else group,
+            freq=freq or "M",
+            horizon=int(horizon or DEFAULT_HORIZON.get(freq or "M", 3)),
+        )
+
+        try:
+            job_id = bundle.start_forecast_job(panels.sheet_from_value(sheet), spec)
+        except (ValueError, TypeError, KeyError) as error:
+            return None, True, ui.message(str(error), "error")
+
+        return job_id, False, panels.model_progress_view(bundle.model_job(job_id))
+
+    @app.callback(
+        Output("fc-results", "children", allow_duplicate=True),
+        Output("fc-poll", "disabled", allow_duplicate=True),
+        Input("fc-poll", "n_intervals"),
+        State("fc-job", "data"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def poll_forecast(_ticks, job_id, dataset_id):
+        bundle = store.get(dataset_id)
+        job = bundle.model_job(job_id) if bundle else None
+
+        if job is None:
+            return no_update, True
+
+        if job["status"] == "running":
+            return panels.model_progress_view(job), False
+
+        if job["status"] == "error":
+            return ui.message(f"Forecast failed: {job['error']}", "error"), True
+
+        return _safe(panels.forecast_results_view, job["result"]), True
+
+    @app.callback(
+        Output("fc-chart", "children"),
+        Input("fc-series", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_fc_series(name, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None or bundle.latest_forecast is None or not name:
+            return no_update
+
+        return _safe(panels.forecast_chart, bundle.latest_forecast, name)
+
+    @app.callback(
+        Output("fc-download", "data"),
+        Input("fc-download-button", "n_clicks"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def download_forecast(clicks, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if not clicks or bundle is None or bundle.latest_forecast is None:
+            return no_update
+
+        return dcc.send_data_frame(bundle.latest_forecast.forecasts.to_csv, "forecast.csv", index=False)
 
     # -- Chart builder ----------------------------------------------------
 
