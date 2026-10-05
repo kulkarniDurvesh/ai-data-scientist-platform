@@ -146,7 +146,7 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 **Requirements:** Python 3.10+ (developed on 3.12).
 
 ```bash
-git clone https://github.com/<your-username>/ai-data-scientist-platform.git
+git clone https://github.com/kulkarniDurvesh/ai-data-scientist-platform.git
 cd ai-data-scientist-platform
 
 python -m venv .venv
@@ -272,7 +272,7 @@ The pharma SFA workbook used in the screenshots and examples is **synthetic**, g
 
 ## Author
 
-**Durvesh Kulkarni** — building this project to learn and demonstrate end-to-end AI engineering: data understanding, machine learning, LLMs, RAG, agentic AI and Azure.
+**Durvesh Kulkarni** ([@kulkarniDurvesh](https://github.com/kulkarniDurvesh)) — building this project to learn and demonstrate end-to-end AI engineering: data understanding, machine learning, LLMs, RAG, agentic AI and Azure.
 
 ## License
 
