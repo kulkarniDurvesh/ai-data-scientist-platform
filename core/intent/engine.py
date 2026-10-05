@@ -60,6 +60,16 @@ def interpret(text: str, view: DataView, provider: Provider | None = None) -> Go
 
     proposed = proposal.model_dump()
     soft = {key for key in reading.soft if proposed.get(key) in (None, [])}
+    # A model's column that doesn't fit is a guess: fall back to the default
+    # (with a note). Only a target or measure that exists nowhere is asked
+    # about, since the user named something the data may not have.
+    columns = {c for sheet in view.sheets for c in view.native_columns(sheet)}
+    for key, value in proposed.items():
+        if key in ("task", "unknown_terms") or value in (None, []):
+            continue
+        if key in ("target", "measure") and isinstance(value, str) and value not in columns:
+            continue
+        soft.add(key)
     plan = complete(merged, view, "language model", text, soft, reading.sheet_hints)
     if proposal.unknown_terms:
         plan.warnings.append(f"Not matched to the data: {describe_terms(proposal.unknown_terms)}.")

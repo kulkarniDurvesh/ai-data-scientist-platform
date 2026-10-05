@@ -46,33 +46,61 @@ class GoalProposal(BaseModel):
     unknown_terms: list[str] = Field(default_factory=list, description="Words of the goal that match no column or value")
 
 
+TASK_FIELDS = {
+    "rank": "target (a binary column)",
+    "classify": "target (a binary column)",
+    "regress": "target (a measure column)",
+    "recommend": "user, item (key columns), period, days",
+    "forecast": "measure, time, group, freq, horizon",
+    "segment": "unit (a key column), features",
+    "why": "measure, time, dimensions, attention, compare",
+    "ask": "(no fields)",
+}
+
 SYSTEM = """You turn a user's goal for a dataset into a structured request.
 Rules:
-- Choose exactly one task from the catalogue.
+- Choose exactly one task from the catalogue. If the goal does not say what to do, set task to null.
+- Fill only the fields the chosen task uses (listed with each task); leave every other field null.
 - Use column and table names exactly as listed. Never invent names.
 - The user may use other words for a column (synonyms, plurals, abbreviations): map them to the listed column.
-- Fill only fields the user states or clearly implies; leave the rest null (the system fills defaults).
+- A target or measure must have the role the task needs (binary, measure).
+- Fill a field only if the user states or clearly implies it; the system fills defaults. List features or dimensions only if the user names them.
 - Put words that match no column, table or value in unknown_terms.
 - Do not compute or estimate any numbers from the data.
 Reply with JSON only."""
 
+# Roles worth showing the model; constant, empty and free-text columns are noise.
+SHOWN_ROLES = ("identifier", "measure", "binary", "dimension", "time")
+
 
 def catalogue(view: DataView) -> str:
+    """Tasks plus a compact profile of the tables that can serve any task."""
+
     lines = ["Tasks:"]
     for name, info in TASKS.items():
-        lines.append(f"- {name}: {info['description']}")
+        lines.append(f"- {name}: {info['description']} Fields: {TASK_FIELDS[name]}.")
     lines.append("")
-    lines.append("Tables:")
+    lines.append("Tables (column:role, sample values for categories):")
+
+    usable = {sheet for task in TASKS for sheet in view.sheets_for(task)}
     for sheet in view.sheets:
+        if sheet not in usable:
+            continue
         try:
             frame, schema, _, _ = view.context(sheet)
         except (ValueError, KeyError, TypeError):
             continue
-        lines.append(f'## "{view.label(sheet)}" ({len(frame)} rows)')
+        parts = []
         for column in view.native_columns(sheet)[:MAX_COLUMNS_PER_SHEET]:
-            samples = frame[column].dropna().astype(str).unique()[:SAMPLES]
-            shown = ", ".join(value[:20] for value in samples)
-            lines.append(f"- {column} [{schema.role_of(column)}] e.g. {shown}")
+            role = schema.role_of(column)
+            if role not in SHOWN_ROLES:
+                continue
+            entry = f"{column}:{role}"
+            if role in ("dimension", "binary"):
+                samples = frame[column].dropna().astype(str).unique()[:SAMPLES]
+                entry += " (" + "/".join(value[:15] for value in samples) + ")"
+            parts.append(entry)
+        lines.append(f'"{view.label(sheet)}": ' + ", ".join(parts))
     return "\n".join(lines)
 
 

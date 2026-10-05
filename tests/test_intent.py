@@ -172,6 +172,21 @@ def test_model_output_is_validated(retail):
     assert any("turnover" in w for w in plan.warnings)
 
 
+def test_model_column_that_does_not_fit_falls_back(sales):
+    provider = ScriptedProvider([{"task": "recommend", "user": "Region", "item": "AccountKey", "unknown_terms": []}])
+    plan = interpret("plan calls to clients for each salesperson", sales.goal_view(), provider)
+    assert plan.ready and plan.spec.user == "RepCode"
+    assert any("Ignored 'Region'" in a for a in plan.assumptions)
+
+
+def test_no_model_by_default(monkeypatch):
+    reset_provider()
+    monkeypatch.delenv("AIDS_LLM_PROVIDER", raising=False)
+    assert get_provider(refresh=True) is None
+    assert "switched off" in provider_status()["detail"]
+    use_provider(None)
+
+
 def test_rules_skip_the_model_when_sure(retail):
     provider = ScriptedProvider([])
     plan = interpret("forecast sales by region for the next 6 months", retail.goal_view(), provider)

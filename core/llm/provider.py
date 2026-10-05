@@ -7,14 +7,18 @@ One interface for language models: local (Ollama), Azure OpenAI, or none.
 The platform works without a model: callers must accept `None` and fall
 back to rules. Settings (environment variables):
 
-    AIDS_LLM_PROVIDER   auto (default) | ollama | azure | none
+    AIDS_LLM_PROVIDER   none (default) | ollama | azure | auto
     AIDS_LLM_MODEL      Ollama model tag (default qwen3.5:4b)
     AIDS_OLLAMA_HOST    default http://127.0.0.1:11434
+    AIDS_LLM_NUM_CTX    Ollama context window in tokens (default 8192)
+    AIDS_LLM_THINK      1 = let reasoning models think first (slow on CPU; default off)
     AIDS_AZURE_OPENAI_ENDPOINT, AIDS_AZURE_OPENAI_DEPLOYMENT,
     AIDS_AZURE_OPENAI_KEY, AIDS_AZURE_OPENAI_API_VERSION (default 2024-10-21)
 
-"auto" uses Azure OpenAI when its endpoint is set, else Ollama when it is
-running and has the model, else no model.
+The default is no model: a 4B model on a laptop CPU takes about a minute
+per request, so a model is used only when switched on. "auto" uses Azure
+OpenAI when its endpoint is set, else Ollama when it is running and has
+the model, else no model.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ from typing import Any
 
 DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
 DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
+DEFAULT_NUM_CTX = 8192
 DEFAULT_AZURE_API_VERSION = "2024-10-21"
 TIMEOUT_SECONDS = 120
 
@@ -72,17 +77,28 @@ class OllamaProvider(Provider):
     def __init__(self, model: str | None = None, host: str | None = None):
         self.model = model or os.environ.get("AIDS_LLM_MODEL") or DEFAULT_OLLAMA_MODEL
         self.host = (host or os.environ.get("AIDS_OLLAMA_HOST") or DEFAULT_OLLAMA_HOST).rstrip("/")
+        self.num_ctx = int(os.environ.get("AIDS_LLM_NUM_CTX") or DEFAULT_NUM_CTX)
+        self.think = os.environ.get("AIDS_LLM_THINK", "0").strip().lower() in ("1", "true", "yes")
 
     def chat(self, messages, schema=None, temperature=0.0) -> str:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "stream": False,
-            "options": {"temperature": temperature},
+            # The default 4096-token window can cut a large table catalogue.
+            "options": {"temperature": temperature, "num_ctx": self.num_ctx},
+            # Reasoning models think at length before answering: minutes on a CPU.
+            "think": self.think,
         }
         if schema is not None:
             payload["format"] = schema
-        reply = _post_json(f"{self.host}/api/chat", payload)
+        try:
+            reply = _post_json(f"{self.host}/api/chat", payload)
+        except LLMError as error:
+            if "think" not in str(error).lower():
+                raise
+            payload.pop("think")  # models without a thinking switch
+            reply = _post_json(f"{self.host}/api/chat", payload)
         content = (reply.get("message") or {}).get("content", "")
         if not content:
             raise LLMError("The model returned an empty reply.")
@@ -150,12 +166,12 @@ def get_provider(refresh: bool = False) -> Provider | None:
     if not refresh and time.time() - _cache["at"] < CACHE_SECONDS:
         return _cache["provider"]
 
-    choice = os.environ.get("AIDS_LLM_PROVIDER", "auto").strip().lower()
+    choice = os.environ.get("AIDS_LLM_PROVIDER", "none").strip().lower()
     provider: Provider | None = None
     status: dict[str, Any] = {"provider": None, "model": None, "available": False, "detail": ""}
 
     if choice == "none":
-        status["detail"] = "Language model switched off (AIDS_LLM_PROVIDER=none)."
+        status["detail"] = "Language model switched off (set AIDS_LLM_PROVIDER=ollama or azure to use one)."
     elif choice == "azure" or (choice == "auto" and os.environ.get("AIDS_AZURE_OPENAI_ENDPOINT")):
         try:
             provider = AzureOpenAIProvider()

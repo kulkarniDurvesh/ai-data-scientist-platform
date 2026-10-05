@@ -73,7 +73,7 @@ Say what you want to build in plain words and press **Understand**, or click one
 
 ### Rules and the language model
 
-The rules understand wording that reuses the data's names (*customers → customer_id*, *regions → Region*) and generic words (*forecast, why, plan, rank, segment, next 6 months, by, per*). Other words for columns (*clients*, *salesperson*) need a language model: with **Ollama** running locally (`ollama pull qwen3.5:4b`) or Azure OpenAI configured, it is asked only when the rules are unsure. The line under the text box says which model is in use. The model only proposes; every proposal is checked like any other, and it never computes numbers.
+The rules understand wording that reuses the data's names (*customers → customer_id*, *regions → Region*) and generic words (*forecast, why, plan, rank, segment, next 6 months, by, per*). Other words for columns (*clients*, *salesperson*) need a language model. It is off by default: on a laptop CPU, `qwen3.5:4b` in Ollama takes about 45 seconds per goal. Switch it on with `AIDS_LLM_PROVIDER=ollama` (after `ollama pull qwen3.5:4b`) or `azure` (fast, Phase 9); it is then asked only when the rules are unsure. The line under the text box says which model is in use. A model's column that doesn't fit is ignored with a note; a target or measure that exists nowhere becomes a question. The model only proposes; every proposal is checked like any other, and it never computes numbers.
 
 A goal can be shared as a link: `http://127.0.0.1:8050/?tab=goal&goal=forecast%20sales%20by%20region`.
 
@@ -350,5 +350,5 @@ Every chart pinned from any tab, including charts answered from another sheet. U
 | First question on a workbook is slow | Linking sheets takes a few seconds; it runs in the background right after loading |
 | A column has the wrong role | Check the Overview → Columns table; roles come from values and names (e.g. names ending in *Id*, *Code*, *Key*, *No* are keys) |
 | An answer used an unexpected date column | Mention the event in the question ("visited", "ordered", "shipped") or add a year |
-| Goal tab says "No language model" | Optional: install Ollama and run `ollama pull qwen3.5:4b` (or set `AIDS_LLM_MODEL` to an installed model), then reload; rules and the card work without it |
+| Goal tab says "No language model" | Normal: the model is off by default. To use one, run `ollama pull qwen3.5:4b`, set `AIDS_LLM_PROVIDER=ollama` (and `AIDS_LLM_MODEL` for another model) and restart; rules and the card work without it |
 | A goal word is "not understood" | Use the data's column names, or pick the field on the card; a language model maps other words |

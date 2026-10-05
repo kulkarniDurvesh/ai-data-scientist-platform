@@ -250,7 +250,7 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 - **Validated before anything runs:** every column is checked against the real tables and the role the task needs; near-misses are corrected (*sales → Sales*), invented columns become **clarifying questions**, defaults are listed as **choices made**, and words nothing matches are reported instead of guessed.
 - **Editable confirmation card (D):** goal, table and every field as dropdowns, re-validated on each change; **Run** starts the same tested pipeline as the tab (model, plan, forecast, segments, investigation or question), then opens its results.
 - **Suggestions from the data (E):** one-click goals the dataset supports, each already validated (e.g. *Rank by Next Month Order for each doctor*, *Plan which doctors each MR should contact*).
-- **Works without a model:** rules + questions + the card; the Goal tab says which model is in use and why not when none is. Shareable links: `?tab=goal&goal=<text>`.
+- **Works without a model — and that is the default:** a 4B model on a laptop CPU took ~45 s per goal (measured with `qwen3.5:4b`), so the model is opt-in (`AIDS_LLM_PROVIDER=ollama` or `azure`); rules + questions + the card; the Goal tab says which model is in use and why not when none is. Shareable links: `?tab=goal&goal=<text>`.
 
 ### HTTP API (Phase 5)
 - **Every capability as typed endpoints:** upload, schema, quality, insights, ask (incl. why-questions), target analysis, model training / saving / scoring, recommendation plans (per user), forecasts, segments, why-analysis and KPIs — 21 endpoints, documented at `/docs` and `/openapi.json` for generating .NET or TypeScript clients.
@@ -318,7 +318,7 @@ Optional — a local language model for the goal box (the platform works without
 ```bash
 ollama pull qwen3.5:4b           # CPU-friendly; any Ollama model works: set AIDS_LLM_MODEL
 # or Azure OpenAI: set AIDS_AZURE_OPENAI_ENDPOINT, AIDS_AZURE_OPENAI_DEPLOYMENT, AIDS_AZURE_OPENAI_KEY
-# AIDS_LLM_PROVIDER=auto|ollama|azure|none (default auto)
+# AIDS_LLM_PROVIDER=ollama|azure|auto|none (default none: on a laptop CPU a 4B model takes ~45 s per goal)
 ```
 
 Run the dashboard:

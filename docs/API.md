@@ -136,7 +136,8 @@ curl -s -X POST http://127.0.0.1:8000/datasets/8f1c.../goals/run \
 |---|---|
 | `AIDS_API_KEY` | When set, every request needs the header `X-API-Key: <value>` (otherwise `401`) |
 | `AIDS_CORS_ORIGINS` | Comma-separated origins allowed by CORS, e.g. `http://localhost:4200` for an Angular dev server (default `*`) |
-| `AIDS_LLM_PROVIDER` | `auto` (default: Azure OpenAI if configured, else Ollama if running, else none), `ollama`, `azure` or `none` |
+| `AIDS_LLM_PROVIDER` | `none` (default, rules only), `ollama`, `azure`, or `auto` (Azure OpenAI if configured, else Ollama if running) |
+| `AIDS_LLM_NUM_CTX`, `AIDS_LLM_THINK` | Ollama context window (default 8192 tokens) and reasoning mode (default off: thinking takes minutes on a CPU) |
 | `AIDS_LLM_MODEL`, `AIDS_OLLAMA_HOST` | Ollama model tag (default `qwen3.5:4b`) and address (default `http://127.0.0.1:11434`) |
 | `AIDS_AZURE_OPENAI_ENDPOINT`, `_DEPLOYMENT`, `_KEY`, `_API_VERSION` | Azure OpenAI settings (API version default `2024-10-21`) |
 
