@@ -11,6 +11,7 @@ This document explains how the platform is organised today and how the planned A
 - [Model builder](#model-builder)
 - [Recommender](#recommender)
 - [Forecaster](#forecaster)
+- [Segmenter](#segmenter)
 - [Dashboard state](#dashboard-state)
 - [Key design decisions](#key-design-decisions)
 - [Planned architecture](#planned-architecture)
@@ -57,6 +58,7 @@ flowchart TB
 | `core/date_parts.py` | Detect "March 2025", "Q1", "in 2024"; choose the date column from question words; date-part masks |
 | `core/workbook.py` | Load all sheets, detect key links, build enriched (looked-up) frames |
 | `core/target_analysis.py` | Target detection and the target report (segments, feature signal, leakage, panel, split, drift, Markdown) |
+| `core/segment/` | Segmentation: `units` (rows or per-key aggregation, feature choice), `correlation` (Spearman, redundant pairs, VIF, Cramér's V), `cluster` (preparation, k-means with silhouette, bands, profiles and names, PCA map), `anomaly` (Isolation Forest, robust-z reasons), `engine` (orchestration) |
 | `core/forecast/` | Forecasting: `series` (spec, bucketing, gap filling, incomplete-period detection, defaults), `models` (naive, seasonal naive, drift, ETS, Theta, ARIMA, global gradient boosting on lags), `evaluate` (rolling-origin backtest, MAE / sMAPE / MASE, interval widths), `engine` (orchestration, STL diagnostics) |
 | `core/recommend/` | Recommendation: `roles` (user / item / time / outcome / success / group detection), `history` (point-in-time features and as-of snapshots), `planner` (daily plans under capacity, gap and group rules), `backtest` (strategy comparison on held-out weeks), `engine` (orchestration) |
 | `core/modeling/` | Goal-driven model builder: `goal` (GoalSpec), `features` (role-based preprocessing), `split` (time / stratified windows), `models` (candidates, metrics, lift), `explain` (permutation importance, per-row reasons), `builder` (orchestration), `registry` (save / list / load) |
@@ -208,6 +210,28 @@ flowchart LR
 | Metrics | MAE, sMAPE, MASE (scaled by each history's in-sample seasonal-naive MAE) |
 | Intervals | Standard deviation of the chosen model's backtest errors per step (pooled and widened with √step when sparse), made non-decreasing; ±1.28σ / ±1.96σ; floored at 0 for non-negative series |
 | Diagnostics | STL (robust) with the season length (12 months, 52 weeks, 7 days, 4 quarters); strength = 1 − Var(remainder) / Var(component + remainder) |
+
+## Segmenter
+
+```mermaid
+flowchart LR
+    T[Table + SegmentSpec] --> U[Units<br/>rows or per key]
+    U --> C[Correlation report<br/>Spearman · redundancy · VIF · Cramér's V]
+    U --> P[Prepared matrix<br/>log skew · standardise ·<br/>weighted one-hot]
+    P --> K[K-means k=2..8<br/>silhouette] & B[Bands of a measure]
+    K & B --> N[Profiles + names<br/>PCA map · heatmap]
+    P --> A[Isolation Forest<br/>+ robust-z reasons]
+    N & A & C --> O[Tables · charts · CSV]
+```
+
+| Step | Method |
+|---|---|
+| Features | Measures, numeric 0/1 columns, categories with ≤ 15 levels; IDs, dates, text, constants and high-cardinality categories excluded with reasons |
+| Preparation | Median impute; log1p for non-negative columns with skew > 1; z-score; one-hot divided by √levels |
+| Choice of k | Silhouette on up to 3,000 units for k = 2–8; segments renumbered by size |
+| Names | Top two traits by size of effect: standardised mean difference ≥ 0.5 ("High/Low X") or a category share ≥ 20 points above overall ("Mostly Y"); duplicates numbered |
+| Anomalies | Isolation Forest (200 trees) on the same matrix; top share flagged; reasons from robust z = (x − median) / (1.4826·MAD), falling back to the standard deviation when MAD is 0, and categories under 2% |
+| VIF | Each standardised numeric regressed on the others by least squares; R² ≈ 1 reported as ∞ with an "exact combination" note |
 
 ## Dashboard state
 

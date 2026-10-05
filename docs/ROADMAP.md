@@ -15,6 +15,7 @@ Legend: ✅ done · 🔜 next · 📋 planned
 | ✅ 3a | Build model tab: goal picker, proposed setup, role-based features, time-aware train/validation/test, baseline + linear + random forest + gradient boosting, PR-AUC/ROC-AUC/capture/lift or MAE/RMSE/R², permutation importance, per-row reasons, scoring, CSV download, local model registry, background training |
 | ✅ 3b | Recommend tab: interaction-sheet and role detection (user, item, date, outcome, success values, cross-sheet group), point-in-time history features, success model via the 3a builder, daily plan per user within group under capacity and gap rules, backtest vs simple rules and random, CSV download |
 | ✅ 3c | Forecast tab: any measure (or row count) over time, in total and per group; bucketing with incomplete-period detection; naive, seasonal naive, drift, ETS, Theta, ARIMA and global lag-feature gradient boosting; rolling-origin backtest with MAE / sMAPE / MASE; forecasts with approximate 80% / 95% intervals; STL trend and seasonality strength (3+ seasons); CSV download |
+| ✅ 3d | Segments tab: units per row or per key, k-means (silhouette or fixed k) or quantile bands, named profiles, PCA map and heatmap, Isolation Forest anomalies with robust-z reasons, Spearman / redundancy / VIF / Cramér's V report, CSV download |
 
 ## Model builder (Phase 3)
 
@@ -23,13 +24,13 @@ Legend: ✅ done · 🔜 next · 📋 planned
 | ✅ 3a | **Build model** tab (see above) | Done: top 20% of the doctor list captures 85% of next-month orderers on the test period (baseline 16%); tests on unrelated synthetic data |
 | ✅ 3b | **Recommendation:** generic user/item/interaction roles, next-best-visit ranking with point-in-time features, configurable rules, daily plan per MR and territory, backtest | Weekly plan respects capacity and visit gaps; backtest shows lift over historical visits and the rule-based script |
 | ✅ 3c | **Forecasting:** series detection, trend/seasonality, baselines vs ETS/ARIMA/lag-feature models, walk-forward backtest, intervals | Territory forecast beats seasonal-naive |
-| 🔜 3d | **Clustering, segmentation, anomaly detection, correlation:** auto-k clustering with profiles, Isolation Forest with reasons, correlation matrix and redundant features | Planted clusters/outliers recovered in tests |
+| ✅ 3d | **Clustering, segmentation, anomaly detection, correlation:** auto-k clustering with profiles, Isolation Forest with reasons, correlation matrix and redundant features | Planted clusters/outliers recovered in tests |
 
 ## Analysis and service (Phases 4–5)
 
 | Phase | Deliverable |
 |---|---|
-| 📋 4a | "Why" tools: period comparison, change decomposition with drill-down, per-entity anomalies, attention ranking, Investigate tab |
+| 🔜 4a | "Why" tools: period comparison, change decomposition with drill-down, per-entity anomalies, attention ranking, Investigate tab |
 | 📋 4b | KPI definitions layer (one config file per domain; the only place domain terms live) |
 | 📋 5 | FastAPI service exposing every capability as typed endpoints; Docker / docker-compose |
 

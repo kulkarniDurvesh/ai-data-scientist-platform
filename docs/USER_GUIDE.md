@@ -12,6 +12,7 @@ Start it with `python app.py` (or `python app.py --file data.xlsx`) and open <ht
 - [Build model tab](#build-model-tab)
 - [Recommend tab](#recommend-tab)
 - [Forecast tab](#forecast-tab)
+- [Segments tab](#segments-tab)
 - [My board tab](#my-board-tab)
 - [Troubleshooting](#troubleshooting)
 
@@ -29,7 +30,7 @@ On load, text columns holding numbers or dates are converted automatically. ID-l
 
 The header shows the file name, rows × columns and the current sheet (e.g. "sheet ML_TrainingData (12 of 12)").
 
-**Deep links:** add `?tab=overview`, `auto`, `builder`, `ask`, `target`, `model`, `recommend`, `forecast` or `board` to the URL to open a tab directly.
+**Deep links:** add `?tab=overview`, `auto`, `builder`, `ask`, `target`, `model`, `recommend`, `forecast`, `segments` or `board` to the URL to open a tab directly.
 
 ## Overview tab
 
@@ -204,6 +205,30 @@ Press **Forecast** (a few seconds).
 - The backtest never uses the future: each cut-off fits only on earlier periods.
 - Intervals are approximate: they come from the chosen model's backtest errors and widen with the horizon.
 - A horizon longer than half the history is refused.
+
+## Segments tab
+
+Groups similar units, flags unusual ones and shows how features relate.
+
+1. **Table** and **Segment** — *Each row*, or *Each <key>* to build one unit per value of a repeated key (e.g. each doctor from doctor × month rows: numbers averaged, categories by most common value, plus the number of rows when it varies). Panel data defaults to one unit per key.
+2. **Method**
+   - *K-means, best number of segments* — tries 2–8 and keeps the best silhouette.
+   - *K-means, fixed number of segments* — uses the number you set.
+   - *Low / medium / high bands of one measure* — thirds of the chosen measure; simple and easy to explain.
+3. **Features** — measures, 0/1 columns and categories with up to 15 levels are proposed; remove any you don't want to segment on (e.g. the outcome you plan to predict).
+4. **Flag as unusual (%)** — share of units to flag (default 1%).
+
+### Results
+
+| Part | Meaning |
+|---|---|
+| Segment profiles | Name, size, share and *what sets it apart*: features at least 0.5 standard deviations from the average, and categories over-represented by 20+ points |
+| Segment map | Units projected to two dimensions (PCA), coloured by segment |
+| Profile heatmap | Each segment's difference from the average per feature (blue above, red below) |
+| How many segments? | Silhouette for 2–8 segments (−1 to 1; higher = better separated); low values mean overlapping, broad segments |
+| Unusual units | Highest Isolation Forest scores with reasons: features far from typical (robust z ≥ 3.5, with the typical range) and rare categories |
+| Correlations | Spearman matrix; redundant pairs (|ρ| ≥ 0.9) with a keep-one suggestion; VIF (above 10 = largely explained by other columns; ∞ = an exact combination, e.g. a total of parts); Cramér's V between categories |
+| Download | Every unit with its segment, anomaly score and reasons |
 
 ## My board tab
 

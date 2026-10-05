@@ -48,7 +48,8 @@ Most EDA tools show charts; this project aims to behave like a **data scientist*
 3. **prepares a dataset for machine learning** — target rate by segment, feature signal, leakage checks, panel detection and a time-aware train/test split;
 4. **builds models from a goal** — pick *predict a yes/no outcome*, *rank / prioritise* or *predict a number*; it proposes features, excludes leaky columns, compares models against a baseline on an honest split, explains the winner and scores the latest rows;
 5. **recommends next contacts** — learns which interactions succeed from point-in-time history and plans each user's next working days within their group (e.g. daily doctor visits per MR per territory), with a backtest against simple rules;
-6. **forecasts** any measure over time, in total and per group, choosing among statistical and machine-learning models with a rolling backtest against naive baselines, with forecast intervals.
+6. **forecasts** any measure over time, in total and per group, choosing among statistical and machine-learning models with a rolling backtest against naive baselines, with forecast intervals;
+7. **segments and screens** — groups units into named segments, flags unusual ones with reasons, and reports correlated, redundant and collinear features.
 
 The long-term goal (see [Roadmap](#roadmap)): the user states **what they want to achieve** — *predict, forecast, recommend, segment, find anomalies* — and the platform formulates the problem, trains and evaluates suitable models, and explains the results. An LLM acts as the **orchestrator**; tested Python pipelines do the computation, so numbers are never invented.
 
@@ -65,8 +66,8 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 | 3a | Goal-driven model builder: classification, ranking, regression with explanations, scoring and a model registry | ✅ Done |
 | 3b | Recommendation: next-best-contact model, daily plan per user within their group, backtest | ✅ Done |
 | 3c | Forecasting: series building, rolling backtest of 7 models vs baselines, forecasts with intervals | ✅ Done |
-| 3d | Clustering, segmentation, anomaly detection, correlation | 🔜 Next |
-| 4–5 | "Why" analysis tools, KPI layer, FastAPI service | 📋 Planned |
+| 3d | Segments: k-means or bands with readable profiles, anomaly detection with reasons, correlation / redundancy / VIF report | ✅ Done |
+| 4–5 | "Why" analysis tools, KPI layer, FastAPI service | 🔜 Next |
 | 6–8 | LLM layer, RAG with citations, agentic AI (AutoML orchestrator, analyst agent, MCP server) | 📋 Planned |
 | 9–11 | Azure (Bicep), .NET SFA integration + Manager Agent, evaluation and governance | 📋 Planned |
 
@@ -108,6 +109,13 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 <summary><b>Forecast</b> — measure over time: backtested models, forecast with 80%/95% intervals, per-group series (click to expand)</summary>
 
 ![Forecast tab](docs/images/forecast.png)
+
+</details>
+
+<details>
+<summary><b>Segments</b> — named segments, map and profile heatmap, unusual units with reasons, correlations (click to expand)</summary>
+
+![Segments tab](docs/images/segments.png)
 
 </details>
 
@@ -176,6 +184,13 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 - **Forecasts with approximate 80% / 95% intervals** from the model's backtest errors; trend and seasonality strength from STL — only reported with three or more full seasons, because two cycles make the seasonal estimate meaningless.
 - Chart per series (total or any group), model comparison, forecast table and CSV download.
 
+### Segmentation, anomalies and correlations (Phase 3d)
+- **Units:** each row, or one per entity (doctor × month → doctor) with numbers averaged and categories by most common value; panel data defaults to per entity.
+- **Segments:** k-means for 2–8 segments chosen by silhouette (or a fixed number), or low / medium / high bands of one measure. Numbers are standardised (log for skewed), categories one-hot and weighted so each column counts about once.
+- **Readable names and profiles** from what sets each segment apart — *"High Orders Placed, High Order Rate"*, *"High Not Interested, Low Interest Rate"* — with sizes, a PCA map and a profile heatmap.
+- **Unusual units:** Isolation Forest flags the top share (default 1%), with reasons from robust z-scores (median / MAD) and rare categories — *"Order Rate = 0.69 (typical 0–0.035)"*.
+- **Correlation report:** Spearman matrix, redundant pairs (|ρ| ≥ 0.9), VIF with exact linear combinations named (*"TotalVisits is an exact combination of other columns"*), and Cramér's V between categories.
+
 ## How it works
 
 ```mermaid
@@ -192,7 +207,8 @@ flowchart LR
     W --> R[Recommender<br/>history → success model → plan → backtest]
     M --> R
     W --> FC[Forecaster<br/>series → backtest → forecast + intervals]
-    D & E & F & Q & T & M & R & FC --> UI[Dash dashboard]
+    W --> SG[Segmenter<br/>units → segments · anomalies · correlations]
+    D & E & F & Q & T & M & R & FC & SG --> UI[Dash dashboard]
 ```
 
 **Ask pipeline:** the question is parsed into intent, entity, filters, dates and chart type using the dataset's own column names and values → a validated query plan → executed with pandas → turned into a sentence, a table and (if useful) a chart. If the selected sheet can't answer, every linked sheet is tried and the best one is used.
@@ -225,7 +241,7 @@ python app.py --file data.xlsx --sheet Visits  # pick an Excel sheet
 python app.py --port 8060 --debug              # other port, Dash dev tools
 ```
 
-Then open <http://127.0.0.1:8050>. Deep links open a tab directly: `?tab=overview|auto|builder|ask|target|model|recommend|forecast|board`.
+Then open <http://127.0.0.1:8050>. Deep links open a tab directly: `?tab=overview|auto|builder|ask|target|model|recommend|forecast|segments|board`.
 
 ## Usage examples
 
@@ -285,6 +301,17 @@ Forecast tab, *OrderDetails* sheet, monthly **estimated revenue** split by terri
 
 > Total forecast for Jan–Mar 2026: about 254k, with 80% and 95% intervals. Monthly **visit counts** from the *Visits* sheet forecast with sMAPE ≈ 3% (ETS). Errors per territory are larger than for the total because the per-territory series are small and volatile.
 
+Segments tab, one unit per doctor (500), 13 behaviour features, 4 segments:
+
+| Segment | Share | What sets it apart |
+|---|---|---|
+| High Not Interested, Low Interest Rate | 34% | not interested 17.3 vs 8.5 on average; interest rate 0.01 vs 0.21 |
+| High Follow Up Rate, Low Total Visits | 24% | follow-up rate 0.46 vs 0.29; fewer visits |
+| High Follow Up Required, High Follow Up Rate | 22% | follow-ups 11.1 vs 6.2 |
+| High Orders Placed, High Order Rate | 20% | orders 5.8 vs 1.3; order rate 0.27 vs 0.06 |
+
+> The correlation report also finds that `TotalVisits` is an exact sum of the outcome counts (VIF ∞) and that `OrdersPlaced` / `OrderRate` are almost the same signal (ρ = 0.999) — useful before modelling.
+
 ## Project structure
 
 ```
@@ -303,6 +330,7 @@ Forecast tab, *OrderDetails* sheet, monthly **estimated revenue** split by terri
 │   ├── modeling/              # goal → features → split → candidates → explain → score → registry
 │   ├── recommend/             # roles → point-in-time history → success model → daily plan → backtest
 │   ├── forecast/              # series → models → rolling backtest → forecast with intervals
+│   ├── segment/               # units → correlations → segments with profiles → anomalies with reasons
 │   └── NLP/                   # Ask engine: parser → planner → engine → answer
 ├── visualization/             # chart specs, recommender, engine, renderer, validator
 ├── ui/                        # Dash app: layout, callbacks, panels, state, styles
@@ -324,7 +352,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-The suite (72 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage) and dashboard rendering.
+The suite (78 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage), segmentation (planted groups recovered, planted outliers flagged, redundancy and exact totals found, bands) and dashboard rendering.
 
 ## Roadmap
 
@@ -333,8 +361,8 @@ The suite (72 tests) covers schema inference, data quality, charts, the Ask engi
 | ✅ 3a | Goal-driven model builder: classification, ranking, regression | scikit-learn |
 | ✅ 3b | Recommendation: next-best-contact model, daily plans, backtest | scikit-learn |
 | ✅ 3c | Forecasting with rolling backtests and intervals | statsmodels, scikit-learn |
-| **3d** | Clustering, segmentation, anomaly detection, correlation | scikit-learn |
-| 4 | "Why" tools (change decomposition, period comparison, attention ranking) and a KPI definitions layer | pandas |
+| ✅ 3d | Segmentation, anomaly detection, correlation | scikit-learn |
+| **4** | "Why" tools (change decomposition, period comparison, attention ranking) and a KPI definitions layer | pandas |
 | 5 | Python service with typed endpoints | FastAPI, Pydantic, Docker |
 | 6 | LLM layer: one interface for local and cloud models, structured output, LLM fallback for the Ask box, narratives | Ollama, Azure OpenAI |
 | 7 | RAG over SOP/policy/product documents with citations and retrieval metrics | ChromaDB, Azure AI Search |

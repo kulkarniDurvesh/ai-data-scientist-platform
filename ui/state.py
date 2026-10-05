@@ -41,6 +41,7 @@ from core.forecast import (
     measure_options,
 )
 from core.modeling import GoalSpec, ModelResult, build_model, propose_goal
+from core.segment import SegmentResult, SegmentSpec, build_segments, feature_options, unit_options
 from core.recommend import (
     InteractionRoles,
     PlanSettings,
@@ -109,6 +110,8 @@ class DatasetBundle:
     latest_recommendation: RecommendResult | None = None
     latest_forecast: ForecastResult | None = None
     latest_forecast_sheet: str | None = None
+    latest_segments: SegmentResult | None = None
+    latest_segments_sheet: str | None = None
     _contexts: dict[str, "AskContext"] = field(default_factory=dict)
     _lock: threading.RLock = field(default_factory=threading.RLock)
 
@@ -241,6 +244,41 @@ class DatasetBundle:
         def done(result):
             self.latest_forecast = result
             self.latest_forecast_sheet = sheet
+
+        return self._run_job(work, done)
+
+    # ------------------------------------------------------------------
+    # Segments, anomalies and correlations
+    # ------------------------------------------------------------------
+
+    def segment_sheets(self) -> list[str | None]:
+        candidates = self.workbook.readable_sheets() if self.workbook is not None else [self.sheet]
+        found = []
+        for sheet in candidates:
+            frame, schema, _, _ = self.interaction_context(sheet)
+            if len(frame) >= 20 and feature_options(frame, schema, None)[0]:
+                found.append(sheet)
+        return sorted(found, key=lambda sheet: sheet != self.sheet)
+
+    def segment_options(self, sheet: str | None, unit: str | None) -> dict[str, list]:
+        frame, schema, sources, _ = self.interaction_context(sheet)
+        features, excluded = feature_options(frame, schema, unit)
+        return {
+            "units": unit_options(frame, schema),
+            "features": features,
+            "numeric": [f for f in features if schema.is_numeric(f)],
+            "excluded": excluded,
+        }
+
+    def start_segment_job(self, sheet: str | None, spec: SegmentSpec) -> str:
+        frame, schema, _, _ = self.interaction_context(sheet)
+
+        def work(progress):
+            return build_segments(frame, schema, spec, progress=progress)
+
+        def done(result):
+            self.latest_segments = result
+            self.latest_segments_sheet = sheet
 
         return self._run_job(work, done)
 

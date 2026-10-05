@@ -10,6 +10,7 @@ Intelligent EDA dashboard.
         -> Build model   goal -> trained, compared, explained model + scores
         -> Recommend     next-best-contact model + daily plan per user + backtest
         -> Forecast      measure over time: backtested models + forecast intervals
+        -> Segments      clusters with profiles, unusual records, correlations
         -> My board      pinned charts from every tab
 """
 
@@ -26,6 +27,7 @@ from dash import ALL, MATCH, Dash, Input, Output, State, ctx, dcc, html, no_upda
 from core.schema_inference import format_number
 from core.forecast import DEFAULT_HORIZON, ROW_COUNT, SeriesSpec, default_aggregation, suggest_freq
 from core.modeling import save_model
+from core.segment import SegmentSpec
 from core.recommend import PlanSettings, suggest_success
 from core.target_analysis import report_markdown
 
@@ -36,7 +38,7 @@ from .state import DatasetBundle, store
 
 ASSETS_FOLDER = str(Path(__file__).parent / "assets")
 
-TAB_VALUES = {"overview", "auto", "builder", "ask", "target", "model", "recommend", "forecast", "board"}
+TAB_VALUES = {"overview", "auto", "builder", "ask", "target", "model", "recommend", "forecast", "segments", "board"}
 
 HIDDEN = {"display": "none"}
 SHEET_PICKER = {"display": "flex", "alignItems": "center", "gap": "8px"}
@@ -231,6 +233,17 @@ def _layout(initial_id: str | None) -> html.Div:
                 ),
             ),
             dcc.Tab(
+                label="Segments",
+                value="segments",
+                className="tab",
+                selected_className="tab--selected",
+                children=dcc.Loading(
+                    html.Div(id="segments-panel", className="panel"),
+                    type="dot",
+                    color="var(--accent)",
+                ),
+            ),
+            dcc.Tab(
                 id="board-tab",
                 label="My board",
                 value="board",
@@ -251,6 +264,7 @@ def _layout(initial_id: str | None) -> html.Div:
             dcc.Store(id="model-owner", data=None),
             dcc.Store(id="recommend-owner", data=None),
             dcc.Store(id="forecast-owner", data=None),
+            dcc.Store(id="segments-owner", data=None),
             header,
             html.Main(
                 [
@@ -889,6 +903,135 @@ def _register_callbacks(app: Dash) -> None:
             return no_update
 
         return dcc.send_data_frame(bundle.latest_forecast.forecasts.to_csv, "forecast.csv", index=False)
+
+    # -- Segments -----------------------------------------------------------
+
+    @app.callback(
+        Output("segments-panel", "children"),
+        Output("segments-owner", "data"),
+        Input("tabs", "value"),
+        Input("dataset-id", "data"),
+        State("segments-owner", "data"),
+    )
+    def show_segments(tab, dataset_id, owner):
+        if tab != "segments" or dataset_id is None or owner == dataset_id:
+            return no_update, no_update
+
+        bundle = store.get(dataset_id)
+
+        if bundle is None:
+            return None, None
+
+        return _safe(panels.segments_panel, bundle), dataset_id
+
+    @app.callback(
+        Output("seg-controls", "children"),
+        Input("seg-sheet", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_seg_sheet(sheet, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None:
+            return no_update
+
+        return _safe(panels.segments_controls_view, bundle, panels.sheet_from_value(sheet))
+
+    @app.callback(
+        Output("seg-features", "options"),
+        Output("seg-features", "value"),
+        Output("seg-band", "options"),
+        Output("seg-band", "value"),
+        Input("seg-unit", "value"),
+        State("seg-sheet", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_seg_unit(unit, sheet, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None:
+            return no_update, no_update, no_update, no_update
+
+        options = bundle.segment_options(panels.sheet_from_value(sheet), None if unit == panels.EACH_ROW else unit)
+        features = [{"label": f, "value": f} for f in options["features"]]
+        numeric = [{"label": f, "value": f} for f in options["numeric"]]
+        return features, options["features"], numeric, (options["numeric"][0] if options["numeric"] else None)
+
+    @app.callback(
+        Output("seg-job", "data"),
+        Output("seg-poll", "disabled"),
+        Output("seg-results", "children"),
+        Input("seg-build", "n_clicks"),
+        State("seg-sheet", "value"),
+        State("seg-unit", "value"),
+        State("seg-method", "value"),
+        State("seg-k", "value"),
+        State("seg-band", "value"),
+        State("seg-features", "value"),
+        State("seg-share", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def build_segments_job(clicks, sheet, unit, method, k, band, features, share, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if not clicks or bundle is None:
+            return no_update, no_update, no_update
+
+        spec = SegmentSpec(
+            unit=None if unit in (None, panels.EACH_ROW) else unit,
+            features=features or None,
+            method="bands" if method == "bands" else "kmeans",
+            k=int(k) if method == "fixed" and k else None,
+            band_measure=band,
+            anomaly_share=min(max(float(share or 1) / 100, 0.001), 0.2),
+        )
+
+        try:
+            job_id = bundle.start_segment_job(panels.sheet_from_value(sheet), spec)
+        except (ValueError, TypeError, KeyError) as error:
+            return None, True, ui.message(str(error), "error")
+
+        return job_id, False, panels.model_progress_view(bundle.model_job(job_id))
+
+    @app.callback(
+        Output("seg-results", "children", allow_duplicate=True),
+        Output("seg-poll", "disabled", allow_duplicate=True),
+        Input("seg-poll", "n_intervals"),
+        State("seg-job", "data"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def poll_segments(_ticks, job_id, dataset_id):
+        bundle = store.get(dataset_id)
+        job = bundle.model_job(job_id) if bundle else None
+
+        if job is None:
+            return no_update, True
+
+        if job["status"] == "running":
+            return panels.model_progress_view(job), False
+
+        if job["status"] == "error":
+            return ui.message(f"Segmentation failed: {job['error']}", "error"), True
+
+        return _safe(panels.segments_results_view, job["result"]), True
+
+    @app.callback(
+        Output("seg-download", "data"),
+        Input("seg-download-button", "n_clicks"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def download_segments(clicks, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if not clicks or bundle is None or bundle.latest_segments is None:
+            return no_update
+
+        return dcc.send_data_frame(bundle.latest_segments.table.to_csv, "segments.csv", index=False)
 
     # -- Chart builder ----------------------------------------------------
 

@@ -1705,3 +1705,246 @@ def _decomposition_card(result) -> html.Div:
         "The total split into a smooth trend and a repeating seasonal pattern; "
         "what is left is noise.",
     )
+
+
+# ----------------------------------------------------------------------
+# Segments, anomalies and correlations
+# ----------------------------------------------------------------------
+
+EACH_ROW = "__rows__"
+SEGMENT_METHODS = [
+    {"label": "K-means, best number of segments", "value": "auto"},
+    {"label": "K-means, fixed number of segments", "value": "fixed"},
+    {"label": "Low / medium / high bands of one measure", "value": "bands"},
+]
+
+
+def segments_panel(bundle: DatasetBundle) -> html.Div:
+    sheets = bundle.segment_sheets()
+
+    if not sheets:
+        return ui.empty_state("Nothing to segment", "Segmentation needs a table with at least 20 rows and some numeric or category columns.")
+
+    last = bundle.latest_segments
+    sheet = bundle.latest_segments_sheet if last and bundle.latest_segments_sheet in sheets else sheets[0]
+
+    picker = html.Div(
+        [
+            html.Label("Table", className="field-label"),
+            dcc.Dropdown(
+                id="seg-sheet",
+                options=[{"label": name if name else bundle.name, "value": name or CURRENT_SHEET} for name in sheets],
+                value=sheet or CURRENT_SHEET,
+                clearable=False,
+                style={"minWidth": "200px"},
+            ),
+        ],
+        className="field",
+    )
+
+    return html.Div(
+        [
+            dcc.Store(id="seg-job"),
+            dcc.Interval(id="seg-poll", interval=1000, disabled=True),
+            ui.section(
+                "Segments, unusual records and correlations",
+                html.Div(
+                    [
+                        html.Div([picker], className="target-picker"),
+                        html.Div(segments_controls_view(bundle, sheet, last.spec if last and sheet == bundle.latest_segments_sheet else None), id="seg-controls"),
+                    ],
+                    className="card",
+                ),
+                "Groups similar units into segments with readable profiles, flags "
+                "the most unusual ones with reasons, and shows which features move "
+                "together or repeat each other.",
+            ),
+            html.Div(segments_results_view(last) if last else None, id="seg-results"),
+        ]
+    )
+
+
+def segments_controls_view(bundle: DatasetBundle, sheet: str | None, spec=None) -> html.Div:
+    frame, schema, _, _ = bundle.interaction_context(sheet)
+    units = bundle.segment_options(sheet, None)["units"]
+
+    # Repeated keys (doctor x month) default to one unit per key.
+    if spec is not None:
+        unit = spec.unit
+    else:
+        unit = units[0] if units and len(frame) / frame[units[0]].nunique() >= 2 else None
+
+    options = bundle.segment_options(sheet, unit)
+    features = spec.features if spec and spec.features else options["features"]
+    method = "bands" if spec and spec.method == "bands" else ("fixed" if spec and spec.k else "auto")
+
+    unit_choices = [{"label": "Each row", "value": EACH_ROW}] + [{"label": f"Each {humanize(u)}", "value": u} for u in units]
+
+    return html.Div(
+        [
+            html.Div(
+                [
+                    _dropdown("seg-unit", "Segment", unit_choices, unit or EACH_ROW, width="220px"),
+                    _dropdown("seg-method", "Method", SEGMENT_METHODS, method, width="320px"),
+                    _number("seg-k", "Segments (fixed)", spec.k if spec and spec.k else 4, "4"),
+                    _dropdown(
+                        "seg-band", "Measure (bands)",
+                        [{"label": c, "value": c} for c in options["numeric"]],
+                        (spec.band_measure if spec and spec.band_measure else (options["numeric"][0] if options["numeric"] else None)),
+                        width="220px",
+                    ),
+                ],
+                className="target-picker",
+            ),
+            html.Div(
+                [
+                    _dropdown("seg-features", "Features", [{"label": f, "value": f} for f in options["features"]], features, multi=True, width="640px"),
+                ],
+                className="target-picker",
+            ),
+            html.Div(
+                [
+                    _number("seg-share", "Flag as unusual (%)", round((spec.anomaly_share if spec else 0.01) * 100, 1), "1"),
+                    html.Button("Find segments", id="seg-build", n_clicks=0, className="btn btn-primary"),
+                ],
+                className="target-picker",
+            ),
+            html.P(
+                "Per-key units average the numbers and take the most common category "
+                "of each key's rows. IDs, dates, free text and categories with many "
+                "levels are not used as features.",
+                className="card-explanation",
+            ),
+        ]
+    )
+
+
+def segments_results_view(result) -> html.Div:
+    clustering = result.clustering
+    correlation = result.correlation
+
+    tiles = [
+        ui.kpi_tile("Units", format_number(len(result.table)), f"one per {humanize(result.units.unit)}" if result.units.unit else "one per row"),
+        ui.kpi_tile("Features", str(len(result.units.features)), f"{len(result.units.numeric)} numeric · {len(result.units.categorical)} category"),
+        ui.kpi_tile("Segments", str(clustering.k), clustering.method),
+    ]
+    if clustering.silhouette is not None:
+        tiles.append(ui.kpi_tile("Silhouette", f"{clustering.silhouette:.2f}", "−1 to 1, higher = better separated"))
+    tiles.append(ui.kpi_tile("Unusual", str(len(result.anomalies)), f"top {result.spec.anomaly_share:.1%} by anomaly score"))
+
+    notes = [ui.message(result.summary, "success")] + [ui.message(text, "info") for text in result.notes]
+
+    profiles = clustering.profiles.drop(columns=["Id"]).copy()
+    profiles["Share"] = (profiles["Share"] * 100).round(1).astype(str) + "%"
+
+    charts = []
+    if not clustering.projection.empty:
+        charts.append(_projection_card(clustering))
+    if not clustering.heatmap.empty:
+        charts.append(_segment_heatmap_card(clustering))
+    if clustering.k_scores is not None:
+        charts.append(_silhouette_card(clustering))
+
+    anomalies = result.anomalies.copy()
+    key_columns = [c for c in anomalies.columns if c in (result.units.unit, "Row", "Segment", "Anomaly score", "Why unusual")]
+
+    sections = [
+        html.H2("Results: segments", className="section-title"),
+        html.Div(tiles, className="kpi-row"),
+        html.Div(notes),
+        ui.section(
+            "Segment profiles",
+            ui.data_table(profiles, page_size=10),
+            "Traits compare each segment's average with the overall average "
+            "(standardised difference ≥ 0.5) and list over-represented categories.",
+        ),
+        ui.section("Maps and profiles", html.Div(charts, className="chart-grid")),
+        ui.section(
+            "Unusual units",
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Button("Download units with segments (CSV)", id="seg-download-button", n_clicks=0, className="btn"),
+                            dcc.Download(id="seg-download"),
+                        ],
+                        className="target-picker",
+                    ),
+                    ui.data_table(anomalies[key_columns], page_size=10) if len(anomalies) else ui.message("No unusual units flagged."),
+                ],
+                className="card",
+            ),
+            "Isolation Forest scores how easy each unit is to separate from the "
+            "rest; reasons use robust z-scores (median and MAD) and rare categories.",
+        ),
+        ui.section(
+            "Correlations",
+            html.Div(
+                ([_correlation_card(correlation)] if not correlation.matrix.empty else []),
+                className="chart-grid",
+            ),
+            "Spearman rank correlation between numeric features (−1 to 1). "
+            "Association, not causation.",
+        ),
+    ]
+
+    if len(correlation.redundant):
+        sections.append(ui.section("Redundant feature pairs", ui.data_table(correlation.redundant, page_size=8),
+                                   "|rank correlation| ≥ 0.9: one of each pair adds little for modelling."))
+    if correlation.vif is not None:
+        sections.append(ui.section("Multicollinearity (VIF)", ui.data_table(correlation.vif, page_size=8),
+                                   "How much of each numeric feature the others explain; above 10 is high."))
+    if len(correlation.categorical):
+        sections.append(ui.section("Category associations", ui.data_table(correlation.categorical, page_size=8),
+                                   "Cramér's V between category features (0 = independent, 1 = one determines the other)."))
+
+    return html.Div(sections)
+
+
+def _projection_card(clustering) -> html.Div:
+    figure = go.Figure()
+    for index, name in enumerate(clustering.projection["Segment"].unique()):
+        part = clustering.projection[clustering.projection["Segment"] == name]
+        figure.add_trace(go.Scatter(
+            x=part["PC1"], y=part["PC2"], mode="markers", name=name,
+            marker={"size": 6, "opacity": 0.7, "color": SERIES_COLORS[index % len(SERIES_COLORS)]},
+        ))
+    apply_theme(figure, height=380)
+    figure.update_xaxes(title_text="Component 1")
+    figure.update_yaxes(title_text="Component 2")
+    return ui.figure_card("Segment map", figure, "Units projected to two dimensions (PCA) and coloured by segment.")
+
+
+def _segment_heatmap_card(clustering) -> html.Div:
+    heat = clustering.heatmap
+    figure = go.Figure(go.Heatmap(
+        z=heat.to_numpy(), x=[humanize(c) for c in heat.columns], y=list(heat.index),
+        colorscale=[[0, "#e34948"], [0.5, "#ffffff"], [1, "#2a78d6"]], zmid=0,
+        colorbar={"title": "vs avg (σ)"},
+    ))
+    apply_theme(figure, height=max(260, 70 * len(heat) + 140))
+    figure.update_xaxes(tickangle=-40)
+    return ui.figure_card("Segment profiles", figure, "Blue = above average, red = below, in standard deviations.")
+
+
+def _silhouette_card(clustering) -> html.Div:
+    scores = clustering.k_scores
+    figure = go.Figure(go.Scatter(x=scores["k"], y=scores["Silhouette"], mode="lines+markers", line={"color": SERIES_COLORS[0], "width": 3}))
+    figure.add_vline(x=clustering.k, line_dash="dash", line_color="#9a9894")
+    apply_theme(figure, height=320)
+    figure.update_xaxes(title_text="Number of segments", dtick=1)
+    figure.update_yaxes(title_text="Silhouette")
+    return ui.figure_card("How many segments?", figure, "Silhouette for each number of segments; the dashed line marks the one used.")
+
+
+def _correlation_card(correlation) -> html.Div:
+    matrix = correlation.matrix
+    labels = [humanize(c) for c in matrix.columns]
+    figure = go.Figure(go.Heatmap(
+        z=matrix.to_numpy(), x=labels, y=labels, zmin=-1, zmax=1,
+        colorscale=[[0, "#e34948"], [0.5, "#ffffff"], [1, "#2a78d6"]],
+        colorbar={"title": "ρ"},
+    ))
+    apply_theme(figure, height=max(380, 26 * len(labels) + 160))
+    figure.update_xaxes(tickangle=-40)
+    return ui.figure_card("Rank correlation matrix", figure, "Blue = move together, red = move in opposite directions.")
