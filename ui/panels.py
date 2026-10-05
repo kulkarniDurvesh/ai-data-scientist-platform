@@ -2021,3 +2021,255 @@ def _correlation_card(correlation) -> html.Div:
     apply_theme(figure, height=max(380, 26 * len(labels) + 160))
     figure.update_xaxes(tickangle=-40)
     return ui.figure_card("Rank correlation matrix", figure, "Blue = move together, red = move in opposite directions.")
+
+
+# ----------------------------------------------------------------------
+# Investigate ("why did it change?")
+# ----------------------------------------------------------------------
+
+COMPARE_OPTIONS = [
+    {"label": "Previous period", "value": "previous"},
+    {"label": "Same period last year", "value": "year"},
+]
+DIRECTION_OPTIONS = [
+    {"label": "Higher is better", "value": "up"},
+    {"label": "Lower is better", "value": "down"},
+]
+NO_ENTITY = "__none__"
+
+
+def investigate_panel(bundle: DatasetBundle) -> html.Div:
+    sheets = bundle.forecast_sheets()
+
+    if not sheets:
+        return ui.empty_state("Nothing to investigate", "Investigation needs a table with a date column.")
+
+    last = bundle.latest_why
+    sheet = bundle.latest_why_sheet if last and bundle.latest_why_sheet in sheets else sheets[0]
+
+    picker = html.Div(
+        [
+            html.Label("Table", className="field-label"),
+            dcc.Dropdown(
+                id="why-sheet",
+                options=[{"label": name if name else bundle.name, "value": name or CURRENT_SHEET} for name in sheets],
+                value=sheet or CURRENT_SHEET,
+                clearable=False,
+                style={"minWidth": "200px"},
+            ),
+        ],
+        className="field",
+    )
+
+    return html.Div(
+        [
+            dcc.Store(id="why-job"),
+            dcc.Interval(id="why-poll", interval=1000, disabled=True),
+            ui.section(
+                "Why did it change?",
+                html.Div(
+                    [
+                        html.Div([picker], className="target-picker"),
+                        html.Div(investigate_controls_view(bundle, sheet, last if last and sheet == bundle.latest_why_sheet else None), id="why-controls"),
+                    ],
+                    className="card",
+                ),
+                "Compares the latest complete period with the previous one (or the "
+                "same period last year), finds which groups explain the change and "
+                "follows the biggest one down a few levels, then flags unusual groups "
+                "and ranks what needs attention. You can also ask \"why did … change?\" "
+                "in the Ask tab.",
+            ),
+            html.Div(investigate_results_view(last) if last else None, id="why-results"),
+        ]
+    )
+
+
+def investigate_controls_view(bundle: DatasetBundle, sheet: str | None, last=None) -> html.Div:
+    options = bundle.why_options(sheet)
+    frame, schema, _, _ = bundle.interaction_context(sheet)
+
+    spec = last.spec if last else None
+    date = spec.time if spec else options["dates"][0]
+    measure = spec.measure if spec else options["measures"][0]
+    freq = spec.freq if spec else suggest_freq(frame[date])
+    aggregation = (spec.aggregation if spec and spec.aggregation != "count" else None) or (
+        default_aggregation(schema, measure) if measure != ROW_COUNT else "sum"
+    )
+    dimensions = spec.dimensions if spec else options["dimensions"]
+    entity = (last.attention_dimension if last else None) or (options["entities"][0] if options["entities"] else NO_ENTITY)
+    direction = "up" if not last or last.higher_is_better else "down"
+
+    def measure_label(column: str) -> str:
+        return "Number of rows" if column == ROW_COUNT else column
+
+    return html.Div(
+        [
+            html.Div(
+                [
+                    _dropdown("why-date", "Date", [{"label": c, "value": c} for c in options["dates"]], date),
+                    _dropdown("why-measure", "Measure", [{"label": measure_label(c), "value": c} for c in options["measures"]], measure, width="220px"),
+                    _dropdown("why-agg", "Combine values by", [o for o in AGG_OPTIONS if o["value"] in {"sum", "mean"}], aggregation),
+                    _dropdown("why-freq", "Period", FREQ_OPTIONS, freq, width="140px"),
+                    _dropdown("why-compare", "Compare with", COMPARE_OPTIONS, spec.compare if spec else "previous", width="220px"),
+                ],
+                className="target-picker",
+            ),
+            html.Div(
+                [
+                    _dropdown("why-dims", "Explain by", [{"label": c, "value": c} for c in options["dimensions"]], dimensions, multi=True, width="560px"),
+                ],
+                className="target-picker",
+            ),
+            html.Div(
+                [
+                    _dropdown(
+                        "why-entity", "Rank for attention",
+                        [{"label": "No ranking", "value": NO_ENTITY}] + [{"label": c, "value": c} for c in options["entities"]],
+                        entity, width="220px",
+                    ),
+                    _dropdown("why-direction", "Direction", DIRECTION_OPTIONS, direction, width="180px"),
+                    html.Button("Investigate", id="why-build", n_clicks=0, className="btn btn-primary"),
+                ],
+                className="target-picker",
+            ),
+            html.P(
+                "Explain-by columns are categories and keys with up to 100 values; "
+                "columns that repeat another one (a key and its name) are listed once.",
+                className="card-explanation",
+            ),
+        ]
+    )
+
+
+def investigate_results_view(result) -> html.Div:
+    comparison = result.comparison
+    spec = result.spec
+    good = (comparison.change >= 0) == result.higher_is_better
+
+    tiles = [
+        ui.kpi_tile(result.label(), format_number(comparison.current), _period_label(comparison.current_period, spec)),
+        ui.kpi_tile("Compared with", format_number(comparison.previous), _period_label(comparison.previous_period, spec)),
+        ui.kpi_tile("Change", f"{comparison.change:+,.2f}".rstrip("0").rstrip("."),
+                    (f"{comparison.change_pct:+.1%}" if not np.isnan(comparison.change_pct) else "") + (" · good" if good else " · needs attention")),
+    ]
+    if len(result.attention):
+        top = result.attention.iloc[0]
+        tiles.append(ui.kpi_tile("Top attention", str(top[result.attention_dimension]), f"score {top['Attention score']}"))
+
+    steps = html.Ol([html.Li(step.text, className="why-step") for step in result.steps], className="why-steps")
+    notes = [ui.message(text, "info") for text in result.notes]
+
+    charts = [_trend_card(result)]
+    if result.breakdowns:
+        charts.append(_waterfall_card(result, result.breakdowns[0]))
+
+    sections = [
+        html.H2(f"Results: why {result.label().lower()} changed", className="section-title"),
+        html.Div(tiles, className="kpi-row"),
+        ui.section("Explanation", html.Div([steps] + notes, className="card"),
+                   "Each step follows the group that explains most of the movement into the next dimension."),
+        ui.section("Over time and by contribution", html.Div(charts, className="chart-grid")),
+    ]
+
+    for item in result.breakdowns[:4]:
+        table = item.table.head(MAX_BREAKDOWN_ROWS).copy()
+        table["Share of change"] = (table["Share of change"] * 100).round(1)
+        table = table.rename(columns={"Share of change": "Share of change %"})
+        for column in table.columns:
+            if table[column].dtype.kind == "f":
+                table[column] = table[column].round(2)
+        sections.append(ui.section(
+            f"By {humanize(item.dimension)}",
+            ui.data_table(table, page_size=10),
+            f"The biggest group moving with the total accounts for {item.concentration:.0%} of all movement across {humanize(item.dimension)}.",
+        ))
+
+    if result.attention_dimension:
+        sections.append(ui.section(
+            f"Which {humanize(result.attention_dimension)} need attention",
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Button("Download attention ranking (CSV)", id="why-download-button", n_clicks=0, className="btn"),
+                            dcc.Download(id="why-download"),
+                        ],
+                        className="target-picker",
+                    ),
+                    ui.data_table(result.attention, page_size=10) if len(result.attention) else ui.message("Not enough history to rank."),
+                ],
+                className="card",
+            ),
+            "Score combines the change vs the comparison period, how unusual the "
+            "current period is for that group, the recent trend and the group's size. "
+            "'Why' lists the factors behind each score.",
+        ))
+        sections.append(ui.section(
+            "Unusual this period",
+            ui.data_table(result.unusual, page_size=10) if len(result.unusual) else ui.message("No group is far from its usual range."),
+            "Groups whose current value is far from their own history (robust z ≥ 2.5).",
+        ))
+
+    return html.Div(sections)
+
+
+MAX_BREAKDOWN_ROWS = 15
+
+
+def _period_label(stamp, spec) -> str:
+    if spec.freq == "M":
+        return f"{stamp:%b %Y}"
+    if spec.freq == "Q":
+        return f"Q{stamp.quarter} {stamp.year}"
+    if spec.freq == "W":
+        return f"week of {stamp:%Y-%m-%d}"
+    return f"{stamp:%Y-%m-%d}"
+
+
+def _trend_card(result) -> html.Div:
+    trend = result.trend
+    comparison = result.comparison
+    marked = [comparison.previous_period, comparison.current_period]
+
+    figure = go.Figure()
+    figure.add_trace(go.Scatter(x=trend.index, y=trend.values, mode="lines+markers", name=result.label(),
+                                line={"color": "#52514e", "width": 2}, marker={"size": 5}))
+    figure.add_trace(go.Scatter(x=marked, y=[trend.get(p) for p in marked], mode="markers", name="Compared periods",
+                                marker={"size": 12, "color": SERIES_COLORS[0]}))
+    apply_theme(figure, height=340)
+    figure.update_yaxes(title_text=result.label())
+    return ui.figure_card(f"{result.label()} over time", figure, "The two compared periods are highlighted.")
+
+
+def _waterfall_card(result, item) -> html.Div:
+    comparison = result.comparison
+    table = item.table
+    top = table.head(8)
+    rest = table["Change"].iloc[8:].sum()
+
+    labels = [_period_label(comparison.previous_period, result.spec)] + [str(v) for v in top[item.dimension]]
+    values = [comparison.previous] + list(top["Change"])
+    measures = ["absolute"] + ["relative"] * len(top)
+    if len(table) > 8:
+        labels.append("Other groups")
+        values.append(rest)
+        measures.append("relative")
+    labels.append(_period_label(comparison.current_period, result.spec))
+    values.append(comparison.current)
+    measures.append("total")
+
+    figure = go.Figure(go.Waterfall(
+        x=labels, y=values, measure=measures,
+        increasing={"marker": {"color": SERIES_COLORS[0]}},
+        decreasing={"marker": {"color": "#e34948"}},
+        totals={"marker": {"color": "#52514e"}},
+        connector={"line": {"color": "#c9c7c1"}},
+    ))
+    apply_theme(figure, height=340)
+    figure.update_xaxes(tickangle=-30)
+    return ui.figure_card(
+        f"From {labels[0]} to {labels[-1]} by {humanize(item.dimension)}",
+        figure,
+        "Blue raised the total, red lowered it.",
+    )

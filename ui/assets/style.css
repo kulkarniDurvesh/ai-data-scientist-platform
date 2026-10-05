@@ -506,3 +506,6 @@ body {
 .goal-description { color: var(--text-muted); }
 .progress-steps { margin: 12px 0 0 18px; color: var(--text-secondary); }
 .save-message { color: var(--text-muted); font-size: 13px; }
+
+.why-steps { margin: 0 0 0 20px; display: flex; flex-direction: column; gap: 10px; }
+.why-step { line-height: 1.5; color: var(--text-primary); }

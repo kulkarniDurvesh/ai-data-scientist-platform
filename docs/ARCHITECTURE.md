@@ -12,6 +12,7 @@ This document explains how the platform is organised today and how the planned A
 - [Recommender](#recommender)
 - [Forecaster](#forecaster)
 - [Segmenter](#segmenter)
+- [Investigator](#investigator)
 - [Dashboard state](#dashboard-state)
 - [Key design decisions](#key-design-decisions)
 - [Planned architecture](#planned-architecture)
@@ -58,6 +59,7 @@ flowchart TB
 | `core/date_parts.py` | Detect "March 2025", "Q1", "in 2024"; choose the date column from question words; date-part masks |
 | `core/workbook.py` | Load all sheets, detect key links, build enriched (looked-up) frames |
 | `core/target_analysis.py` | Target detection and the target report (segments, feature signal, leakage, panel, split, drift, Markdown) |
+| `core/why/` | Why-analysis: `change` (periods, comparison, breakdown with mix / rate, drill-down chain and narrative), `attention` (group history, unusual groups, attention ranking), `engine` (explain-by and attention options, orchestration) |
 | `core/segment/` | Segmentation: `units` (rows or per-key aggregation, feature choice), `correlation` (Spearman, redundant pairs, VIF, Cramér's V), `cluster` (preparation, k-means with silhouette, bands, profiles and names, PCA map), `anomaly` (Isolation Forest, robust-z reasons), `engine` (orchestration) |
 | `core/forecast/` | Forecasting: `series` (spec, bucketing, gap filling, incomplete-period detection, defaults), `models` (naive, seasonal naive, drift, ETS, Theta, ARIMA, global gradient boosting on lags), `evaluate` (rolling-origin backtest, MAE / sMAPE / MASE, interval widths), `engine` (orchestration, STL diagnostics) |
 | `core/recommend/` | Recommendation: `roles` (user / item / time / outcome / success / group detection), `history` (point-in-time features and as-of snapshots), `planner` (daily plans under capacity, gap and group rules), `backtest` (strategy comparison on held-out weeks), `engine` (orchestration) |
@@ -232,6 +234,30 @@ flowchart LR
 | Names | Top two traits by size of effect: standardised mean difference ≥ 0.5 ("High/Low X") or a category share ≥ 20 points above overall ("Mostly Y"); duplicates numbered |
 | Anomalies | Isolation Forest (200 trees) on the same matrix; top share flagged; reasons from robust z = (x − median) / (1.4826·MAD), falling back to the standard deviation when MAD is 0, and categories under 2% |
 | VIF | Each standardised numeric regressed on the others by least squares; R² ≈ 1 reported as ∞ with an "exact combination" note |
+
+## Investigator
+
+```mermaid
+flowchart LR
+    T[Table + ChangeSpec] --> P[Complete periods<br/>current vs previous / last year]
+    P --> B[Breakdown per dimension<br/>sum: Δ per group · mean: mix + rate]
+    B --> C[Pick the dimension whose top group<br/>dominates all movement]
+    C -->|share ≥ 25%| D[Follow that group<br/>next dimension, ≤ 3 levels]
+    C -->|share < 25%| S[Stop: change is spread out]
+    P --> A[Attention ranking + unusual groups<br/>per entity]
+    D & S & A --> N[Narrative · charts · tables]
+```
+
+| Step | Method |
+|---|---|
+| Periods | Bucketed by the chosen grain; for event data a last period covering < 80% of its days is dropped; snapshot columns (native grain = chosen grain) are complete |
+| Breakdown (sums, counts) | Change per group = current − previous; missing values grouped as "(missing)" so the parts add up to the total |
+| Breakdown (averages) | Shift-share: mix = (w₁ − w₀)·r₀, rate = w₁·(r₁ − r₀) per group, summing to the change in the average |
+| Concentration | \|change of the biggest group moving with the total\| ÷ Σ\|changes\| (0–1, can't exceed 1 when groups offset) |
+| Explain-by options | Categories and keys with 2–100 values; one-to-one equivalent columns deduplicated; times of day excluded |
+| Unusual groups | Robust z of the current value against the group's previous 12 periods (median, 1.4826·MAD; standard deviation if MAD is 0) |
+| Attention score | 40 × min(fall %, 1) + 30 × min(\|z\| / 4, 1) + 20 × min(5 × falling trend, 1), scaled by the group's relative size, + 10 × share; only the "bad" direction counts |
+| Ask integration | Questions starting with "why": measure via the parser (numeric column or counted entity), date named in the question or the main event date, all explain-by options; the first sheet that has the measure answers |
 
 ## Dashboard state
 

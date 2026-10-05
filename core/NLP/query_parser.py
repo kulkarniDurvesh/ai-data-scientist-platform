@@ -89,6 +89,14 @@ class QueryParser:
     # PUBLIC API
     # ---------------------------------------------------------
 
+    def measure_in(self, question: str) -> str | None:
+        """The numeric column a question is about ("why did revenue drop")."""
+        return self._find_numeric_column_from_context(self._split_glued_words(question))
+
+    def entity_in(self, question: str) -> str | None:
+        """The key column whose entities a question counts ("why did visits drop")."""
+        return self._infer_count_entity(self._split_glued_words(question).lower())
+
     def parse(self, question: str) -> ParsedQuery:
 
         if not question or not question.strip():

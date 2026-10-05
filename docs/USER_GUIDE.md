@@ -13,6 +13,7 @@ Start it with `python app.py` (or `python app.py --file data.xlsx`) and open <ht
 - [Recommend tab](#recommend-tab)
 - [Forecast tab](#forecast-tab)
 - [Segments tab](#segments-tab)
+- [Investigate tab](#investigate-tab)
 - [My board tab](#my-board-tab)
 - [Troubleshooting](#troubleshooting)
 
@@ -30,7 +31,7 @@ On load, text columns holding numbers or dates are converted automatically. ID-l
 
 The header shows the file name, rows × columns and the current sheet (e.g. "sheet ML_TrainingData (12 of 12)").
 
-**Deep links:** add `?tab=overview`, `auto`, `builder`, `ask`, `target`, `model`, `recommend`, `forecast`, `segments` or `board` to the URL to open a tab directly.
+**Deep links:** add `?tab=overview`, `auto`, `builder`, `ask`, `target`, `model`, `recommend`, `forecast`, `segments`, `why` or `board` to the URL to open a tab directly.
 
 ## Overview tab
 
@@ -233,6 +234,29 @@ Groups similar units, flags unusual ones and shows how features relate.
 | Unusual units | Highest Isolation Forest scores with reasons: features far from typical (robust z ≥ 3.5, with the typical range) and rare categories |
 | Correlations | Spearman matrix; redundant pairs (|ρ| ≥ 0.9) with a keep-one suggestion; VIF (above 10 = largely explained by other columns; ∞ = an exact combination, e.g. a total of parts); Cramér's V between categories |
 | Download | Every unit with its segment, anomaly score and reasons |
+
+## Investigate tab
+
+Explains why a number changed between two periods.
+
+1. **Table, Date, Measure, Combine values by, Period** — as in the Forecast tab (number of rows counts records).
+2. **Compare with** — the previous period, or the same period one year earlier. The current period is the latest complete one (a partly covered last period of event data is left out; monthly snapshot columns are always complete).
+3. **Explain by** — categories and keys with up to 100 values. Columns that map one-to-one onto another (a key and its name or e-mail) appear once; times of day are not offered.
+4. **Rank for attention** — an entity (e.g. MR or doctor) to rank; keys that are unique on almost every row are not offered. **Direction**: *higher is better* (a fall is bad) or *lower is better* (a rise is bad).
+
+### Results
+
+| Part | Meaning |
+|---|---|
+| Tiles | Current and comparison values, the change, and the entity with the highest attention score |
+| Explanation | Numbered steps. Each step names the group that accounts for most of the movement and follows it into the next dimension (up to three levels). It stops, and says so, when no group accounts for at least 25% of all movement |
+| Over time | The measure per period, with the two compared periods highlighted |
+| Waterfall | From the comparison period to the current one, group by group (blue up, red down) |
+| By <dimension> | Previous, current, change and share of the net change per group. Shares above 100% mean other groups moved the other way. For averages, **Mix effect** (group weights changed) and **Rate effect** (values within groups changed) add up to the change |
+| Attention ranking | Score from the change vs the comparison period, how unusual the current period is for the group, the recent trend and the group's size; *Why* lists the factors. Download as CSV |
+| Unusual this period | Groups whose current value is far from their own history (robust z ≥ 2.5) |
+
+You can also type **"why did … change / drop / increase?"** in the Ask tab: the measure and date are taken from your words (or the main date column) and the answer is the explanation chain with the top contributions.
 
 ## My board tab
 

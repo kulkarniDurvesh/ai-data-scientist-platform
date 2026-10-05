@@ -49,7 +49,8 @@ Most EDA tools show charts; this project aims to behave like a **data scientist*
 4. **builds models from a goal** — pick *predict a yes/no outcome*, *rank / prioritise* or *predict a number*; it proposes features, excludes leaky columns, compares models against a baseline on an honest split, explains the winner and scores the latest rows;
 5. **recommends next contacts** — learns which interactions succeed from point-in-time history and plans each user's next working days within their group (e.g. daily doctor visits per MR per territory), with a backtest against simple rules;
 6. **forecasts** any measure over time, in total and per group, choosing among statistical and machine-learning models with a rolling backtest against naive baselines, with forecast intervals;
-7. **segments and screens** — groups units into named segments, flags unusual ones with reasons, and reports correlated, redundant and collinear features.
+7. **segments and screens** — groups units into named segments, flags unusual ones with reasons, and reports correlated, redundant and collinear features;
+8. **explains why a number changed** — compares periods, follows the group that explains most of the movement down a few levels, flags unusual groups and ranks what needs attention (also from the Ask box: *"why did revenue increase?"*).
 
 The long-term goal (see [Roadmap](#roadmap)): the user states **what they want to achieve** — *predict, forecast, recommend, segment, find anomalies* — and the platform formulates the problem, trains and evaluates suitable models, and explains the results. An LLM acts as the **orchestrator**; tested Python pipelines do the computation, so numbers are never invented.
 
@@ -67,7 +68,8 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 | 3b | Recommendation: next-best-contact model, daily plan per user within their group, backtest | ✅ Done |
 | 3c | Forecasting: series building, rolling backtest of 7 models vs baselines, forecasts with intervals | ✅ Done |
 | 3d | Segments: k-means or bands with readable profiles, anomaly detection with reasons, correlation / redundancy / VIF report | ✅ Done |
-| 4–5 | "Why" analysis tools, KPI layer, FastAPI service | 🔜 Next |
+| 4a | Investigate: period comparison, drill-down explanation (sums and mix / rate for averages), unusual groups, attention ranking, why-questions in Ask | ✅ Done |
+| 4b–5 | KPI definitions layer, FastAPI service | 🔜 Next |
 | 6–8 | LLM layer and **free-text goal box**, RAG with citations, agentic AI (AutoML orchestrator, analyst agent, MCP server) | 📋 Planned |
 | 9–11 | Azure (Bicep), .NET SFA integration + Manager Agent, evaluation and governance | 📋 Planned |
 
@@ -116,6 +118,13 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 <summary><b>Segments</b> — named segments, map and profile heatmap, unusual units with reasons, correlations (click to expand)</summary>
 
 ![Segments tab](docs/images/segments.png)
+
+</details>
+
+<details>
+<summary><b>Investigate</b> — why a number changed: explanation chain, trend, waterfall, contributions, attention ranking (click to expand)</summary>
+
+![Investigate tab](docs/images/investigate.png)
 
 </details>
 
@@ -192,6 +201,15 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 - **Unusual units:** Isolation Forest flags the top share (default 1%), with reasons from robust z-scores (median / MAD) and rare categories — *"Order Rate = 0.69 (typical 0–0.035)"*.
 - **Correlation report:** Spearman matrix, redundant pairs (|ρ| ≥ 0.9), VIF with exact linear combinations named (*"TotalVisits is an exact combination of other columns"*), and Cramér's V between categories.
 
+### Why did it change? (Phase 4a)
+- **Period comparison:** any measure (or row count), latest complete period vs the previous period or the same period last year (snapshot columns are never mistaken for incomplete periods).
+- **Drill-down explanation:** splits the change by every chosen dimension, follows the group that accounts for most of the movement into the next dimension, up to three levels — and says so when no group stands out. Groups that offset each other are explained in words (*"more than the whole net change: other groups moved the other way"*); missing values form their own group so contributions add up.
+- **Averages and rates:** shift-share separates the **mix effect** (group weights changed) from the **rate effect** (values within groups changed).
+- **Unusual this period:** each group's current value against its own history (robust z).
+- **Attention ranking:** entities (e.g. MRs) scored on change, unusualness, recent trend and size, with the factors listed; *higher is better* or *lower is better*.
+- **Explain-by choices are clean:** keys and their names, e-mails or codes that map one-to-one are offered once; times of day are skipped.
+- **Ask box:** *"why did … change / drop / increase?"* returns the explanation chain and the top contributions.
+
 ## How it works
 
 ```mermaid
@@ -209,7 +227,8 @@ flowchart LR
     M --> R
     W --> FC[Forecaster<br/>series → backtest → forecast + intervals]
     W --> SG[Segmenter<br/>units → segments · anomalies · correlations]
-    D & E & F & Q & T & M & R & FC & SG --> UI[Dash dashboard]
+    W --> WY[Investigator<br/>compare → drill-down → attention]
+    D & E & F & Q & T & M & R & FC & SG & WY --> UI[Dash dashboard]
 ```
 
 **Ask pipeline:** the question is parsed into intent, entity, filters, dates and chart type using the dataset's own column names and values → a validated query plan → executed with pandas → turned into a sentence, a table and (if useful) a chart. If the selected sheet can't answer, every linked sheet is tried and the best one is used.
@@ -242,7 +261,7 @@ python app.py --file data.xlsx --sheet Visits  # pick an Excel sheet
 python app.py --port 8060 --debug              # other port, Dash dev tools
 ```
 
-Then open <http://127.0.0.1:8050>. Deep links open a tab directly: `?tab=overview|auto|builder|ask|target|model|recommend|forecast|segments|board`.
+Then open <http://127.0.0.1:8050>. Deep links open a tab directly: `?tab=overview|auto|builder|ask|target|model|recommend|forecast|segments|why|board`.
 
 ## Usage examples
 
@@ -315,6 +334,12 @@ Segments tab, one unit per doctor (500), 13 behaviour features, 4 segments:
 
 > The correlation report also finds that `TotalVisits` is an exact sum of the outcome counts (VIF ∞) and that `OrdersPlaced` / `OrderRate` are almost the same signal (ρ = 0.999) — useful before modelling.
 
+Investigate tab, *OrderDetails*, monthly estimated revenue, December vs November 2025:
+
+> Total estimated revenue rose from 76,725 to 87,100 (+13.5%). The biggest contributor is Territory = Pune North (+15,375, more than the whole net change: other groups moved the other way, the largest being Solapur −13,025). No single territory accounts for more than 23% of all movement, so the change is spread out. Attention ranking by MR: MR022 first (down 100% vs November, trend falling 25% per month).
+
+On data with a planted cause (one rep's sales of one product collapsing in one region), the chain goes *product → region → rep* and ends at the exact cause (−98%).
+
 ## Project structure
 
 ```
@@ -334,6 +359,7 @@ Segments tab, one unit per doctor (500), 13 behaviour features, 4 segments:
 │   ├── recommend/             # roles → point-in-time history → success model → daily plan → backtest
 │   ├── forecast/              # series → models → rolling backtest → forecast with intervals
 │   ├── segment/               # units → correlations → segments with profiles → anomalies with reasons
+│   ├── why/                   # period comparison → drill-down explanation → unusual groups → attention
 │   └── NLP/                   # Ask engine: parser → planner → engine → answer
 ├── visualization/             # chart specs, recommender, engine, renderer, validator
 ├── ui/                        # Dash app: layout, callbacks, panels, state, styles
@@ -355,7 +381,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-The suite (80 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, month plans with one MR per doctor and levelled load, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage), segmentation (planted groups recovered, planted outliers flagged, redundancy and exact totals found, bands) and dashboard rendering.
+The suite (88 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, month plans with one MR per doctor and levelled load, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage), segmentation (planted groups recovered, planted outliers flagged, redundancy and exact totals found, bands), why-analysis (planted cause found, contributions add up, pure mix shift separated, collapsing entity ranked first, why-questions) and dashboard rendering.
 
 ## Roadmap
 
@@ -365,7 +391,8 @@ The suite (80 tests) covers schema inference, data quality, charts, the Ask engi
 | ✅ 3b | Recommendation: next-best-contact model, daily plans, backtest | scikit-learn |
 | ✅ 3c | Forecasting with rolling backtests and intervals | statsmodels, scikit-learn |
 | ✅ 3d | Segmentation, anomaly detection, correlation | scikit-learn |
-| **4** | "Why" tools (change decomposition, period comparison, attention ranking) and a KPI definitions layer | pandas |
+| ✅ 4a | "Why" tools: period comparison, drill-down, unusual groups, attention ranking | pandas |
+| **4b** | KPI definitions layer (optional domain config) | PyYAML |
 | 5 | Python service with typed endpoints | FastAPI, Pydantic, Docker |
 | 6 | LLM layer: one interface for local and cloud models, structured output, LLM fallback for the Ask box, narratives — and the **free-text goal box** ([design](#free-text-goals-planned-phase-6)) | Ollama, Azure OpenAI |
 | 7 | RAG over SOP/policy/product documents with citations and retrieval metrics | ChromaDB, Azure AI Search |

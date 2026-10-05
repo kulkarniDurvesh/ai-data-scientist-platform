@@ -42,6 +42,10 @@ from core.forecast import (
 )
 from core.modeling import GoalSpec, ModelResult, build_model, propose_goal
 from core.segment import SegmentResult, SegmentSpec, build_segments, feature_options, unit_options
+from core.why import ChangeSpec, Investigation, attention_options, drill_options, investigate
+from core.why.change import all_breakdowns, explain_change
+from core.date_parts import choose_date_column
+from core.forecast import ROW_COUNT, suggest_freq
 from core.recommend import (
     InteractionRoles,
     PlanSettings,
@@ -112,6 +116,8 @@ class DatasetBundle:
     latest_forecast_sheet: str | None = None
     latest_segments: SegmentResult | None = None
     latest_segments_sheet: str | None = None
+    latest_why: Investigation | None = None
+    latest_why_sheet: str | None = None
     _contexts: dict[str, "AskContext"] = field(default_factory=dict)
     _lock: threading.RLock = field(default_factory=threading.RLock)
 
@@ -283,6 +289,86 @@ class DatasetBundle:
         return self._run_job(work, done)
 
     # ------------------------------------------------------------------
+    # Investigate ("why did it change?")
+    # ------------------------------------------------------------------
+
+    def why_options(self, sheet: str | None) -> dict[str, list]:
+        frame, schema, sources, _ = self.interaction_context(sheet)
+        return {
+            "dates": date_options(frame),
+            "measures": measure_options(frame, schema, sources),
+            "dimensions": drill_options(frame, schema),
+            "entities": attention_options(frame, schema),
+        }
+
+    def start_why_job(
+        self,
+        sheet: str | None,
+        spec: ChangeSpec,
+        attention_dimension: str | None,
+        higher_is_better: bool,
+    ) -> str:
+        frame, _, _, _ = self.interaction_context(sheet)
+
+        def work(progress):
+            return investigate(frame, spec, attention_dimension, higher_is_better, progress=progress)
+
+        def done(result):
+            self.latest_why = result
+            self.latest_why_sheet = sheet
+
+        return self._run_job(work, done)
+
+    def _why_answer(self, question: str) -> dict[str, Any] | None:
+        """
+        Answer "why did <measure> change?" with the explanation chain, on
+        the selected sheet or the first sheet that has the measure.
+        """
+
+        sheets = [self.sheet] + [s for s in self.forecast_sheets() if s != self.sheet]
+
+        for sheet in sheets:
+            context = self._ask_context(sheet)
+            frame, schema = context.df, context.schema
+            if not date_options(frame):
+                continue
+
+            measure = context.parser.measure_in(question)
+            aggregation = "sum"
+            if measure is None:
+                if context.parser.entity_in(question) is None:
+                    continue
+                measure, aggregation = ROW_COUNT, "count"
+            elif schema.columns[measure].kind == "ratio":
+                aggregation = "mean"
+
+            # The date the question names, else the main event date.
+            words = set(re.findall(r"[a-z]+", question.lower()))
+            named = [c for c in date_options(frame) if any(same_word(w, t) for w in words for t in name_tokens(c) if len(t) > 3 and t not in {"date", "time"})]
+            time_column = named[0] if named else date_options(frame)[0]
+            spec = ChangeSpec(
+                time=time_column,
+                measure=measure,
+                aggregation=aggregation,
+                freq=suggest_freq(frame[time_column]),
+                compare="year" if re.search(r"\blast year\b|\byear on year\b|\byoy\b", question.lower()) else "previous",
+                dimensions=drill_options(frame, schema),
+            )
+            try:
+                steps = explain_change(frame, spec)
+                breakdowns = all_breakdowns(frame, spec)
+            except (ValueError, KeyError, TypeError):
+                continue
+
+            answer = " ".join(step.text for step in steps)
+            if sheet != self.sheet:
+                answer += f" Answered from the '{sheet}' sheet."
+            table = breakdowns[0].table.head(10).round(2) if breakdowns else None
+            return {"answer": answer, "table": table}
+
+        return None
+
+    # ------------------------------------------------------------------
     # Recommendation (interaction tables)
     # ------------------------------------------------------------------
 
@@ -449,6 +535,12 @@ class DatasetBundle:
         }
 
         try:
+            if re.match(r"^\s*why\b", question, re.IGNORECASE):
+                why = self._why_answer(question)
+                if why is not None:
+                    entry.update(why)
+                    return self._remember(entry)
+
             attempt = self._attempt(self.sheet, question)
 
             # The selected sheet can't answer: try the other sheets and

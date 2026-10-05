@@ -140,7 +140,7 @@ def build_series(dataframe: pd.DataFrame, spec: SeriesSpec) -> SeriesSet:
     # An incomplete last period would look like a sudden drop: leave it out
     # when the data stops well before the period ends.
     last_period = frame["_period"].max()
-    next_period = last_period + pd.tseries.frequencies.to_offset(_offset(spec.freq))
+    next_period = last_period + pd.tseries.frequencies.to_offset(period_offset(spec.freq))
     covered = (frame[spec.time].max().normalize() - last_period).days + 1
     length = (next_period - last_period).days
     dropped = None
@@ -157,7 +157,7 @@ def build_series(dataframe: pd.DataFrame, spec: SeriesSpec) -> SeriesSet:
         for value in top:
             groups[str(value)] = frame[frame[spec.group] == value]
 
-    full_index = pd.date_range(frame["_period"].min(), frame["_period"].max(), freq=_offset(spec.freq))
+    full_index = pd.date_range(frame["_period"].min(), frame["_period"].max(), freq=period_offset(spec.freq))
     series = {}
 
     for name, rows in groups.items():
@@ -190,9 +190,9 @@ def _aggregate(rows: pd.DataFrame, spec: SeriesSpec) -> pd.Series:
     return grouped.sum()
 
 
-def _offset(freq: str) -> str:
+def period_offset(freq: str) -> str:
     return {"D": "D", "W": "W-MON", "M": "MS", "Q": "QS"}[freq]
 
 
 def future_index(last: pd.Timestamp, freq: str, horizon: int) -> pd.DatetimeIndex:
-    return pd.date_range(last, periods=horizon + 1, freq=_offset(freq))[1:]
+    return pd.date_range(last, periods=horizon + 1, freq=period_offset(freq))[1:]

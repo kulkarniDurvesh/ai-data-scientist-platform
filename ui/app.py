@@ -11,6 +11,7 @@ Intelligent EDA dashboard.
         -> Recommend     next-best-contact model + daily plan per user + backtest
         -> Forecast      measure over time: backtested models + forecast intervals
         -> Segments      clusters with profiles, unusual records, correlations
+        -> Investigate   why a number changed: drill-down, unusual groups, attention
         -> My board      pinned charts from every tab
 """
 
@@ -28,6 +29,7 @@ from core.schema_inference import format_number
 from core.forecast import DEFAULT_HORIZON, ROW_COUNT, SeriesSpec, default_aggregation, suggest_freq
 from core.modeling import save_model
 from core.segment import SegmentSpec
+from core.why import ChangeSpec
 from core.recommend import PlanSettings, suggest_success
 from core.target_analysis import report_markdown
 
@@ -38,7 +40,7 @@ from .state import DatasetBundle, store
 
 ASSETS_FOLDER = str(Path(__file__).parent / "assets")
 
-TAB_VALUES = {"overview", "auto", "builder", "ask", "target", "model", "recommend", "forecast", "segments", "board"}
+TAB_VALUES = {"overview", "auto", "builder", "ask", "target", "model", "recommend", "forecast", "segments", "why", "board"}
 
 HIDDEN = {"display": "none"}
 SHEET_PICKER = {"display": "flex", "alignItems": "center", "gap": "8px"}
@@ -244,6 +246,17 @@ def _layout(initial_id: str | None) -> html.Div:
                 ),
             ),
             dcc.Tab(
+                label="Investigate",
+                value="why",
+                className="tab",
+                selected_className="tab--selected",
+                children=dcc.Loading(
+                    html.Div(id="why-panel", className="panel"),
+                    type="dot",
+                    color="var(--accent)",
+                ),
+            ),
+            dcc.Tab(
                 id="board-tab",
                 label="My board",
                 value="board",
@@ -265,6 +278,7 @@ def _layout(initial_id: str | None) -> html.Div:
             dcc.Store(id="recommend-owner", data=None),
             dcc.Store(id="forecast-owner", data=None),
             dcc.Store(id="segments-owner", data=None),
+            dcc.Store(id="why-owner", data=None),
             header,
             html.Main(
                 [
@@ -1058,6 +1072,136 @@ def _register_callbacks(app: Dash) -> None:
             return no_update
 
         return dcc.send_data_frame(bundle.latest_segments.table.to_csv, "segments.csv", index=False)
+
+    # -- Investigate --------------------------------------------------------
+
+    @app.callback(
+        Output("why-panel", "children"),
+        Output("why-owner", "data"),
+        Input("tabs", "value"),
+        Input("dataset-id", "data"),
+        State("why-owner", "data"),
+    )
+    def show_why(tab, dataset_id, owner):
+        if tab != "why" or dataset_id is None or owner == dataset_id:
+            return no_update, no_update
+
+        bundle = store.get(dataset_id)
+
+        if bundle is None:
+            return None, None
+
+        return _safe(panels.investigate_panel, bundle), dataset_id
+
+    @app.callback(
+        Output("why-controls", "children"),
+        Input("why-sheet", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_why_sheet(sheet, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None:
+            return no_update
+
+        return _safe(panels.investigate_controls_view, bundle, panels.sheet_from_value(sheet))
+
+    @app.callback(
+        Output("why-agg", "value"),
+        Input("why-measure", "value"),
+        State("why-sheet", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def change_why_measure(measure, sheet, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if bundle is None or not measure or measure == ROW_COUNT:
+            return "sum"
+
+        _, schema, _, _ = bundle.interaction_context(panels.sheet_from_value(sheet))
+        return default_aggregation(schema, measure)
+
+    @app.callback(
+        Output("why-job", "data"),
+        Output("why-poll", "disabled"),
+        Output("why-results", "children"),
+        Input("why-build", "n_clicks"),
+        State("why-sheet", "value"),
+        State("why-date", "value"),
+        State("why-measure", "value"),
+        State("why-agg", "value"),
+        State("why-freq", "value"),
+        State("why-compare", "value"),
+        State("why-dims", "value"),
+        State("why-entity", "value"),
+        State("why-direction", "value"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def build_why_job(clicks, sheet, date, measure, aggregation, freq, compare, dims, entity, direction, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if not clicks or bundle is None or not date or not measure:
+            return no_update, no_update, no_update
+
+        spec = ChangeSpec(
+            time=date,
+            measure=measure,
+            aggregation="count" if measure == ROW_COUNT else (aggregation or "sum"),
+            freq=freq or "M",
+            compare=compare or "previous",
+            dimensions=dims or [],
+        )
+
+        try:
+            job_id = bundle.start_why_job(
+                panels.sheet_from_value(sheet), spec,
+                None if entity in (None, panels.NO_ENTITY) else entity,
+                direction != "down",
+            )
+        except (ValueError, TypeError, KeyError) as error:
+            return None, True, ui.message(str(error), "error")
+
+        return job_id, False, panels.model_progress_view(bundle.model_job(job_id))
+
+    @app.callback(
+        Output("why-results", "children", allow_duplicate=True),
+        Output("why-poll", "disabled", allow_duplicate=True),
+        Input("why-poll", "n_intervals"),
+        State("why-job", "data"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def poll_why(_ticks, job_id, dataset_id):
+        bundle = store.get(dataset_id)
+        job = bundle.model_job(job_id) if bundle else None
+
+        if job is None:
+            return no_update, True
+
+        if job["status"] == "running":
+            return panels.model_progress_view(job), False
+
+        if job["status"] == "error":
+            return ui.message(f"Investigation failed: {job['error']}", "error"), True
+
+        return _safe(panels.investigate_results_view, job["result"]), True
+
+    @app.callback(
+        Output("why-download", "data"),
+        Input("why-download-button", "n_clicks"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def download_attention(clicks, dataset_id):
+        bundle = store.get(dataset_id)
+
+        if not clicks or bundle is None or bundle.latest_why is None:
+            return no_update
+
+        return dcc.send_data_frame(bundle.latest_why.attention.to_csv, "attention_ranking.csv", index=False)
 
     # -- Chart builder ----------------------------------------------------
 
