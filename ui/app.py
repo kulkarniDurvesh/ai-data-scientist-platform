@@ -914,11 +914,12 @@ def _register_callbacks(app: Dash) -> None:
         Input("agent-send", "n_clicks"),
         State("agent-message", "value"),
         State("agent-name", "value"),
+        State("agent-engine", "value"),
         State("agent-conversation", "data"),
         State("dataset-id", "data"),
         prevent_initial_call=True,
     )
-    def send_to_agent(clicks, message, name, conversation_id, dataset_id):
+    def send_to_agent(clicks, message, name, engine, conversation_id, dataset_id):
         from service.agents import start_agent_job
 
         bundle = store.get(dataset_id)
@@ -927,8 +928,9 @@ def _register_callbacks(app: Dash) -> None:
         if not (message or "").strip():
             return no_update, no_update, ui.message("Type a message first.", "info"), no_update, no_update
         try:
-            job_id, conversation_id = start_agent_job(bundle, name or "automl", message.strip(), conversation_id)
-        except ValueError as error:
+            job_id, conversation_id = start_agent_job(bundle, name or "automl", message.strip(), conversation_id,
+                                                      engine=engine or "loop")
+        except (ValueError, ImportError) as error:
             return None, True, ui.message(str(error), "error"), no_update, no_update
         return job_id, False, panels.model_progress_view(bundle.model_job(job_id)), conversation_id, ""
 

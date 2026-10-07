@@ -64,6 +64,8 @@ flowchart TB
 | `core/llm/` | Language-model layer: `provider` (one interface; Ollama, Azure OpenAI, scripted stand-in; settings from environment; availability check with reasons), `structured` (JSON-schema request, parse, Pydantic validation, one retry with the error) |
 | `core/NLP/llm_query.py` | Ask fallback: table description for the model, `QueryProposal` schema, validation into a `ParsedQuery` (columns matched, filter values must exist, numbers for numeric columns), description of the reading |
 | `core/agents/` | Agents: `tools` (Tool with Pydantic arguments, validated calls, errors as observations), `loop` (JSON-step protocol, step schema built from the agent's tools, trace, step limit, number check on final answers, conversation history) |
+| `mcp_server/` | MCP server (MCP SDK 2.x `MCPServer`): the agents' tools plus `load_dataset`, read-only hints, `ToolError` messages; stdio or streamable HTTP |
+| `service/agents_framework.py` | The same agents on Microsoft Agent Framework (`Agent`, `@tool` with the tools' Pydantic schemas, OpenAI-compatible client for Ollama / Azure), tool calls recorded as steps |
 | `service/agents.py` | Tools bound to a dataset (describe, ask data, ask / search documents, suggest / interpret / run goals, model summary, ask user), the AutoML builder and Analyst agents, conversations, background turns |
 | `core/rag/` | Documents: `documents` (load .md / .txt, heading-aware chunks with section paths, tables kept whole), `search` (BM25, reciprocal rank fusion), `embed` (Ollama embedding model or local LSA), `index` (build, fingerprint, save / load), `answer` (rarity-weighted coverage, extractive answers with citations, model answers with a sentence-level citation check) |
 | `service/knowledge.py` | Knowledge base shared by dashboard and API: default folders, saved index, refresh on change, background answers, uploads, example questions |
@@ -343,6 +345,27 @@ flowchart LR
 | Deterministic tools | Tools never call the model themselves: no nested model calls, predictable runs, faster on CPU |
 | ask_user ends the turn | Clarifying questions go to the user instead of being guessed; the conversation resumes with the answer |
 | Number check on final answers | A final answer can't introduce numbers no tool returned without being flagged |
+
+## MCP, Agent Framework and routing
+
+```mermaid
+flowchart LR
+    T[Platform tools<br/>service/agents.py] --> L[Hand-written loop<br/>core/agents]
+    T --> F[Agent Framework engine<br/>native function calling]
+    T --> M[MCP server<br/>stdio / HTTP]
+    M --> C[Claude Desktop · Claude Code · IDEs]
+    R[Router agent] -->|delegate_to_automl| A[AutoML builder]
+    R -->|delegate_to_analyst| N[Analyst]
+    A & N --> L
+```
+
+| Decision | Why |
+|---|---|
+| One tool set, three hosts | The hand-written loop, Agent Framework and MCP clients call the same functions, so behaviour and numbers match |
+| Both engines kept | The hand-written loop shows how agents work (and works with any model); Agent Framework shows the production framework (sessions, middleware, telemetry, Azure) |
+| OpenAI-compatible client | One client for Ollama's `/v1` endpoint now and Azure OpenAI later |
+| Router delegates to whole agents | Specialists keep their own instructions and tools; the router's trace shows which one answered and its evidence |
+| Observed difference | Agent Framework validates arguments before calling a tool and returns a generic "Argument parsing failed"; the hand-written loop returns which field was wrong |
 
 ## Documents (RAG)
 

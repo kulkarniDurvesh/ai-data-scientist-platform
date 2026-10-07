@@ -2877,12 +2877,13 @@ def document_answer_view(answer) -> html.Div:
 AGENT_HINTS = {
     "automl": "Describe what you want to build; the agent interprets it, asks what is missing, runs the pipeline and explains the result.",
     "analyst": "Ask about the data and the documents; the agent looks things up with the platform's tools and cites them.",
+    "router": "Ask anything: a router agent hands your request to the AutoML builder or the Analyst (or both) and reports back.",
 }
 
 
 def assistant_panel(bundle: DatasetBundle) -> html.Div:
     from core.llm import provider_status
-    from service.agents import AGENTS
+    from service.agents import AGENTS, ENGINES
 
     status = provider_status()
     if status["available"]:
@@ -2904,6 +2905,9 @@ def assistant_panel(bundle: DatasetBundle) -> html.Div:
                                 _dropdown("agent-name", "Agent",
                                           [{"label": label, "value": key} for key, (label, _, _) in AGENTS.items()],
                                           "automl", width="220px"),
+                                _dropdown("agent-engine", "Engine",
+                                          [{"label": label, "value": key} for key, label in ENGINES.items()],
+                                          "loop", width="240px"),
                             ],
                             className="target-picker",
                         ),

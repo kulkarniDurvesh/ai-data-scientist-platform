@@ -272,6 +272,7 @@ class DocumentStatus(BaseModel):
 class AgentMessage(BaseModel):
     message: str = Field(..., examples=["forecast sales by region for the next 3 months"])
     conversation_id: str | None = Field(None, description="Continue a conversation (e.g. to answer the agent's question)")
+    engine: Literal["loop", "framework"] = Field("loop", description="Hand-written loop or Microsoft Agent Framework")
 
 
 class AgentStarted(BaseModel):

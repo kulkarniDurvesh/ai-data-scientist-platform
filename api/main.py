@@ -255,7 +255,7 @@ def agent_turn(dataset_id: str, agent: str, request: AgentMessage) -> AgentStart
     from service.agents import start_agent_job
 
     bundle = bundle_or_404(dataset_id)
-    job_id, conversation_id = start_agent_job(bundle, agent, request.message, request.conversation_id)
+    job_id, conversation_id = start_agent_job(bundle, agent, request.message, request.conversation_id, engine=request.engine)
     return AgentStarted(job_id=job_id, status_url=f"/datasets/{bundle.id}/jobs/{job_id}", conversation_id=conversation_id)
 
 

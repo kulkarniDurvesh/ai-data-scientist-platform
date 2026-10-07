@@ -184,12 +184,52 @@ AGENTS = {
 }
 
 
-def make_agent(bundle: DatasetBundle, name: str) -> Agent:
+AGENTS["router"] = (
+    "Ask anything (router)",
+    "You route the user's request to the right specialist and report its answer. Use delegate_to_automl for goals "
+    "that build something (predict, rank, plan contacts, forecast, segment, explain a change) and "
+    "delegate_to_analyst for questions about the data or the company documents. Pass the user's words on. If a "
+    "request has both parts, delegate twice. Give a short final answer from the specialists' answers.",
+    ["delegate_to_automl", "delegate_to_analyst"],
+)
+
+
+class Delegation(BaseModel):
+    message: str = Field(..., description="The request for the specialist, in the user's words")
+
+
+def make_agent(bundle: DatasetBundle, name: str, provider=None) -> Agent:
     if name not in AGENTS:
         raise ValueError(f"Unknown agent '{name}'. Agents: {', '.join(AGENTS)}.")
     label, instructions, tool_names = AGENTS[name]
     tools = build_tools(bundle)
+    if name == "router":
+        tools.update(_delegation_tools(bundle, provider))
     return Agent(label, instructions, [tools[t] for t in tool_names])
+
+
+def _delegation_tools(bundle: DatasetBundle, provider) -> dict[str, Tool]:
+    """A router's tools run another agent (the one place a tool uses the model: it is an agent)."""
+
+    def delegate(specialist: str):
+        def run(message: str) -> dict:
+            if provider is None:
+                raise ValueError("Delegation needs a language model.")
+            sub = run_agent(make_agent(bundle, specialist), message, provider)
+            return {
+                "specialist": AGENTS[specialist][0],
+                "status": sub.status,
+                "answer": sub.answer,
+                "tools used": [s.action for s in sub.steps if s.action != "final_answer"],
+                "evidence": [s.observation[:400] for s in sub.steps if s.action != "final_answer"][-3:],
+                "note": sub.note,
+            }
+        return run
+
+    return {
+        "delegate_to_automl": Tool("delegate_to_automl", "Hand a goal to the AutoML builder (predict, rank, plan, forecast, segment, explain a change).", Delegation, delegate("automl")),
+        "delegate_to_analyst": Tool("delegate_to_analyst", "Hand a question about the data or the documents to the Analyst.", Delegation, delegate("analyst")),
+    }
 
 
 # Conversations: (dataset id, conversation id) -> history and runs
@@ -204,18 +244,43 @@ def conversation(bundle: DatasetBundle, conversation_id: str | None) -> tuple[st
     return conversation_id, _conversations[key]
 
 
-def start_agent_job(bundle: DatasetBundle, agent_name: str, message: str, conversation_id: str | None = None, provider=None) -> tuple[str, str]:
+ENGINES = {"loop": "Hand-written loop", "framework": "Microsoft Agent Framework"}
+
+
+def start_agent_job(
+    bundle: DatasetBundle,
+    agent_name: str,
+    message: str,
+    conversation_id: str | None = None,
+    provider=None,
+    engine: str = "loop",
+    client=None,
+) -> tuple[str, str]:
     """Run one turn in the background; returns (job id, conversation id)."""
 
-    provider = provider or get_provider()
-    if provider is None:
-        raise ValueError("Agents need a language model: set AIDS_LLM_PROVIDER=ollama or azure.")
-    agent = make_agent(bundle, agent_name)
+    if engine not in ENGINES:
+        raise ValueError(f"Unknown engine '{engine}'. Engines: {', '.join(ENGINES)}.")
+    if engine == "framework" and agent_name == "router":
+        raise ValueError("The router runs on the hand-written loop; choose the AutoML builder or the Analyst for Agent Framework.")
     conversation_id, state = conversation(bundle, conversation_id)
 
-    def work(progress):
-        progress(f"{agent.name} is working on: {message}")
-        return run_agent(agent, message, provider, state["history"], progress)
+    if engine == "framework":
+        from .agents_framework import framework_client, run_framework_agent
+
+        client = client or framework_client()
+
+        def work(progress):
+            progress(f"Agent Framework is working on: {message}")
+            return run_framework_agent(bundle, agent_name, message, client, state["history"])
+    else:
+        provider = provider or get_provider()
+        if provider is None:
+            raise ValueError("Agents need a language model: set AIDS_LLM_PROVIDER=ollama or azure.")
+        agent = make_agent(bundle, agent_name, provider)
+
+        def work(progress):
+            progress(f"{agent.name} is working on: {message}")
+            return run_agent(agent, message, provider, state["history"], progress)
 
     def done(run: AgentRun):
         state["history"].extend(history_from(run))

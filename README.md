@@ -78,7 +78,7 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 | 6b | LLM fallback for the Ask box (validated query, computed by pandas), summaries grounded in computed facts with a number check, evaluation sets with a runner | ✅ Done |
 | 7 | RAG over documents: heading-aware chunks, hybrid BM25 + vector search (Ollama embeddings or local LSA) with rank fusion, cited extractive answers or checked model answers, Documents tab, document API, retrieval evaluation | ✅ Done |
 | 8a | Agents: typed tools over the platform, hand-written tool-calling loop with validation, step limit and trace, AutoML builder and Analyst agents with conversations, Assistant tab, agent API, agent evaluation | ✅ Done |
-| 8b | MCP server for the same tools, Microsoft Agent Framework version, small multi-agent router | 🔜 Next |
+| 8b | MCP server (stdio / HTTP) for the platform tools, Microsoft Agent Framework engine for the same agents, router agent delegating to specialists | ✅ Done |
 | 9–11 | Azure (Bicep), .NET SFA integration + Manager Agent, evaluation and governance | 📋 Planned |
 
 ## Screenshots
@@ -260,6 +260,11 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 - **Editable confirmation card (D):** goal, table and every field as dropdowns, re-validated on each change; **Run** starts the same tested pipeline as the tab (model, plan, forecast, segments, investigation or question), then opens its results.
 - **Suggestions from the data (E):** one-click goals the dataset supports, each already validated (e.g. *Rank by Next Month Order for each doctor*, *Plan which doctors each MR should contact*).
 - **Works without a model — and that is the default:** a 4B model on a laptop CPU took ~45 s per goal (measured with `qwen3.5:4b`), so the model is opt-in (`AIDS_LLM_PROVIDER=ollama` or `azure`); rules + questions + the card; the Goal tab says which model is in use and why not when none is. Shareable links: `?tab=goal&goal=<text>`.
+
+### MCP server, Agent Framework and multi-agent routing (Phase 8b)
+- **MCP server** (`python -m mcp_server`, official MCP Python SDK 2.x): the platform's tools for any MCP client — Claude Desktop, Claude Code, IDEs. `load_dataset` a local file, then `describe_dataset`, `ask_data`, `ask_documents`, `search_documents`, `suggest_goals`, `interpret_goal`, `run_goal`, `summarize_model`; read-only hints on every tool except `run_goal`; readable tool errors. Verified over the real stdio protocol on the SFA workbook (12 tables loaded, *"how many doctors are in Pune North"* → 50, the visit-plan goal, a cited policy answer). Setup: [docs/MCP.md](docs/MCP.md).
+- **Microsoft Agent Framework engine:** the same agents (instructions and tools) on Agent Framework's `Agent` with native function calling, through its OpenAI-compatible client (Ollama's `/v1` endpoint now, Azure OpenAI in Phase 9). Pick *Engine* in the Assistant tab or `engine` in the API; both engines return the same trace and number check.
+- **Router agent** (*Ask anything*): hands a request to the AutoML builder or the Analyst (or both) and reports back, with the specialist's tools and evidence in its trace.
 
 ### Agents (Phase 8a)
 - **Assistant tab** (`POST /datasets/{id}/agents/{agent}`): two agents that plan with the language model and act only through the platform's tools.
@@ -492,6 +497,7 @@ KPIs tab with `domains/pharma_sfa.yaml`, December vs November 2025:
 ├── service/                   # session layer shared by the dashboard and the API
 ├── ui/                        # Dash app: layout, callbacks, panels, styles
 ├── api/                       # FastAPI service: endpoints, schemas, result views
+├── mcp_server/                # MCP server: the platform tools for MCP clients (python -m mcp_server)
 ├── domains/                   # optional domain files (roles + KPI formulas); the only place for domain terms
 ├── knowledge/                 # documents for the Documents tab (synthetic SFA policies; data, not code)
 ├── evals/                     # evaluation sets (goals, questions, documents) + runner: python -m evals [--model]
@@ -514,7 +520,7 @@ python -m pytest -q
 python -m evals                  # interpretation accuracy (rules); --model adds the language model
 ```
 
-The suite (153 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, month plans with one MR per doctor and levelled load, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage), segmentation (planted groups recovered, planted outliers flagged, redundancy and exact totals found, bands), why-analysis (planted cause found, contributions add up, pure mix shift separated, collapsing entity ranked first, why-questions), KPIs (hand-checked values, cross-table ratios, unavailable reasons, partial periods, starter files), the HTTP API (every endpoint, jobs, saved-model scoring, API key), the goal box (rules for every task, unknown words reported, invented columns turned into questions, corrections, suggestions, scripted language-model replies, fallback when the model fails, structured-output retries, running goals), the language-model features (Ask fallback computed by pandas, unknown values and columns refused, rules never call the model, number-checked summaries, evaluation sets), document answers (heading-aware chunks, hybrid search, citations, refusals, model answers rejected for invented numbers / missing or wrong citations, saved index rebuilt on change, uploads, embedder fallback, retrieval evaluation), agents (interpret-and-run flow, asking the user and resuming, data + documents, invented numbers flagged, invalid calls and unknown tools handled, step limit, tools never call the model, agent API) and dashboard rendering.
+The suite (160 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, month plans with one MR per doctor and levelled load, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage), segmentation (planted groups recovered, planted outliers flagged, redundancy and exact totals found, bands), why-analysis (planted cause found, contributions add up, pure mix shift separated, collapsing entity ranked first, why-questions), KPIs (hand-checked values, cross-table ratios, unavailable reasons, partial periods, starter files), the HTTP API (every endpoint, jobs, saved-model scoring, API key), the goal box (rules for every task, unknown words reported, invented columns turned into questions, corrections, suggestions, scripted language-model replies, fallback when the model fails, structured-output retries, running goals), the language-model features (Ask fallback computed by pandas, unknown values and columns refused, rules never call the model, number-checked summaries, evaluation sets), document answers (heading-aware chunks, hybrid search, citations, refusals, model answers rejected for invented numbers / missing or wrong citations, saved index rebuilt on change, uploads, embedder fallback, retrieval evaluation), agents (interpret-and-run flow, asking the user and resuming, data + documents, invented numbers flagged, invalid calls and unknown tools handled, step limit, tools never call the model, agent API, router delegation, Agent Framework engine with a scripted chat client), the MCP server (tools in-process and over the stdio protocol, error results, read-only hints) and dashboard rendering.
 
 ## Roadmap
 
@@ -578,6 +584,7 @@ Why not rules alone: a test on the real workbook showed rules handle wording tha
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Every tab, the questions the Ask box understands, reading the Target tab, troubleshooting |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modules, data flow, Ask pipeline, sheet linking, target analysis, design decisions |
 | [docs/API.md](docs/API.md) | HTTP API: concepts, endpoints, curl and C# examples, settings |
+| [docs/MCP.md](docs/MCP.md) | MCP server: tools, running it, connecting Claude Desktop / Claude Code |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Phases, deliverables, done-criteria |
 | [docs/examples/](docs/examples/) | Real outputs: Ask answers and a generated target report |
 

@@ -355,6 +355,9 @@ Talk to an agent that uses the platform for you. It needs a language model (`AID
 |---|---|---|
 | **AutoML builder** | Turns a goal into a model, plan, forecast, segmentation or explanation: reads the goal, asks what is missing, runs the pipeline, explains the result | describe_dataset, suggest_goals, interpret_goal, run_goal, summarize_model, ask_user |
 | **Analyst** | Answers questions from the data and the documents, and explains changes | describe_dataset, ask_data, ask_documents, search_documents, interpret_goal, run_goal, ask_user |
+| **Ask anything (router)** | Hands your request to the AutoML builder or the Analyst (or both) and reports back | delegate_to_automl, delegate_to_analyst |
+
+**Engine**: *Hand-written loop* (the platform's own agent loop; works with any model) or *Microsoft Agent Framework* (the same agents on Agent Framework with native function calling; the router runs on the hand-written loop only).
 
 Each turn shows your message, the answer and **Steps**: every tool call with its arguments, the agent's reason and the tool's result. When the agent asks a question, reply in the box — the conversation continues. **New conversation** starts over. Results of pipelines the agent ran also appear in their tabs (e.g. a forecast in the Forecast tab). If an answer contains a number no tool returned, it is flagged under the answer.
 

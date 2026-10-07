@@ -5,7 +5,8 @@ __pycache__
 *.pyc
 .pytest_cache
 tests
-docs
+docs/images
+docs/examples
 models
 *.xlsx
 *.csv

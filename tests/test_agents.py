@@ -148,7 +148,7 @@ def test_agent_api(retail):
     api_store._items[retail.id] = retail
     client = TestClient(app)
     names = [a["name"] for a in client.get("/agents").json()]
-    assert names == ["automl", "analyst"]
+    assert names == ["automl", "analyst", "router"]
 
     use_provider(ScriptedProvider([
         {"action": "describe_dataset"},
@@ -160,3 +160,51 @@ def test_agent_api(retail):
     result = status["result"]
     assert result["type"] == "agent" and result["answer"] == "The data has 800 rows." and result["note"] is None
     assert result["steps"][0]["action"] == "describe_dataset"
+
+
+def test_router_delegates_to_a_specialist(retail, frame):
+    # One scripted model plays the router and then the specialist it calls.
+    provider = ScriptedProvider([
+        {"thought": "data question", "action": "delegate_to_analyst", "arguments": {"message": "how many customers are in North region"}},
+        {"thought": "compute", "action": "ask_data", "arguments": {"question": "how many customers are in North region"}},
+        {"thought": "answer", "action": "final_answer", "answer": "There are {n} customers in North."},
+        {"thought": "report", "action": "final_answer", "answer": "The Analyst found {n} customers in North."},
+    ])
+    n = frame.loc[frame["Region"] == "North", "customer_id"].nunique()
+    for reply in provider.replies[2:]:
+        reply["answer"] = reply["answer"].format(n=n)
+    run = run_agent(make_agent(retail, "router", provider), "how many customers are in North?", provider)
+    assert run.status == "done" and run.note is None and str(n) in run.answer
+    delegation = run.steps[0]
+    assert delegation.action == "delegate_to_analyst" and '"tools used": ["ask_data"]' in delegation.observation
+
+
+def test_agent_framework_engine_runs_the_same_tools(retail):
+    from tests.scripted_chat_client import ScriptedChatClient
+
+    client = ScriptedChatClient([
+        {"tool": "interpret_goal", "arguments": {"text": "forecast sales by region for the next 3 months"}},
+        {"tool": "run_goal", "arguments": {"spec": {"task": "forecast", "measure": "Sales", "group": "Region", "freq": "M", "horizon": 3}}},
+        {"text": "The forecast is ready in the Forecast tab."},
+    ])
+    job, _ = start_agent_job(retail, "automl", "forecast sales by region for the next 3 months", engine="framework", client=client)
+    run = _wait(retail, job)["result"]
+    assert run.agent == "AutoML builder (Agent Framework)" and run.status == "done"
+    assert [s.action for s in run.steps] == ["interpret_goal", "run_goal"]
+    assert '"tab": "forecast"' in run.steps[1].observation
+
+    with pytest.raises(ValueError, match="hand-written loop"):
+        start_agent_job(retail, "router", "x", engine="framework", client=client)
+
+
+def test_framework_tool_errors_are_returned_to_the_model(retail):
+    from service.agents_framework import run_framework_agent
+    from tests.scripted_chat_client import ScriptedChatClient
+
+    client = ScriptedChatClient([{"tool": "ask_data", "arguments": {}}, {"text": "I could not ask that."}])
+    run = run_framework_agent(retail, "analyst", "x", client=client)
+    # The framework checks arguments against the tool schema before calling it:
+    # the error goes back to the model, the tool never runs.
+    assert run.status == "done" and run.steps == [] and run.answer == "I could not ask that."
+    tool_results = [c for m in client.requests[1] for c in m.contents if c.type == "function_result"]
+    assert tool_results and "Argument parsing failed" in str(tool_results[0].result)

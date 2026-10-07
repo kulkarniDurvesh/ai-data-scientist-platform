@@ -18,6 +18,7 @@ Legend: ✅ done · 🔜 next · 📋 planned
 | ✅ 3d | Segments tab: units per row or per key, k-means (silhouette or fixed k) or quantile bands, named profiles, PCA map and heatmap, Isolation Forest anomalies with robust-z reasons, Spearman / redundancy / VIF / Cramér's V report, CSV download |
 | ✅ 4a | Investigate tab: period comparison (previous / last year), drill-down explanation chain with offsetting groups explained, mix / rate for averages, unusual groups, attention ranking with factors, why-questions in the Ask box, clean explain-by options |
 | ✅ 4b | KPIs tab: domain files (roles with per-sheet columns, declarative KPIs with filters and cross-sheet ratios, direction, format), safe evaluator with unavailable reasons and partial-period check, breakdown by role, trend, starter file generator; `domains/pharma_sfa.yaml` with 11 SFA KPIs |
+| ✅ 8b | MCP server (MCP SDK 2.x; stdio and HTTP; 10 tools; verified over stdio), Microsoft Agent Framework engine for the same agents (OpenAI-compatible client for Ollama / Azure), router agent delegating to the AutoML builder and the Analyst, engine choice in the Assistant tab and API |
 | ✅ 8a | Assistant tab: typed tools over the session layer, hand-written JSON-step tool-calling loop (validated arguments, errors as observations, step limit, trace, number check), AutoML builder and Analyst agents with conversations and clarifying questions, deterministic tools, agent API, agent evaluation set |
 | ✅ 7 | Documents tab: synthetic SFA policy set + project docs, heading-aware chunks, hybrid BM25 + vector search (Ollama embeddings or local LSA) with reciprocal rank fusion, rarity-weighted "not covered", cited extractive answers, model answers with a sentence-level citation check, uploads, saved index, document API, retrieval evaluation (hit@3 100% on plain questions) |
 | ✅ 6b | Ask fallback (model proposes a query; columns and filter values validated; pandas computes; reading shown), Summary / In plain words cards from fact sheets with a number grounding check for model rewrites, narrative API, query plan in Ask answers, evaluation sets (23 goals, 12 questions) with `python -m evals [--model]`; fixed: unknown filter values were ignored |
@@ -48,13 +49,13 @@ Legend: ✅ done · 🔜 next · 📋 planned
 | ✅ 6a | LLM layer with one interface for local (Ollama) and Azure OpenAI models; validated structured output; **free-text goal box** — approach **C** (hybrid rules + LLM interpreter → structured spec → validation → confirmation card with clarifying questions), **D** (editable card and questions) and **E** (goal suggestions generated from the data) |
 | ✅ 6b | LLM fallback for the Ask box (question → validated query plan); dataset and model narratives grounded in computed results; evaluation sets for goal and question interpretation |
 | ✅ 7 | RAG over synthetic SOP/policy/product documents and project documents; hybrid search; answers with citations; retrieval and groundedness metrics |
-| 🔜 8 | Agentic AI: hand-written tool-calling loop → **free-text AutoML orchestrator** (goal → plan → clarifying questions → confirmation → pipelines → explanation), analyst agent, MCP server, small multi-agent setup, agent evaluation |
+| ✅ 8 | Agentic AI: hand-written tool-calling loop → **free-text AutoML orchestrator** (goal → plan → clarifying questions → confirmation → pipelines → explanation), analyst agent, MCP server, small multi-agent setup, agent evaluation |
 
 ## Cloud, integration and governance (Phases 9–12)
 
 | Phase | Deliverable |
 |---|---|
-| 📋 9 | Azure via Bicep deployment stacks: one command creates, one deletes (also on app exit); Azure OpenAI, Azure AI Search (Free), Container Apps, Key Vault, managed identity, Application Insights, budget alert |
+| 🔜 9 | Azure via Bicep deployment stacks: one command creates, one deletes (also on app exit); Azure OpenAI, Azure AI Search (Free), Container Apps, Key Vault, managed identity, Application Insights, budget alert |
 | 📋 10 | Pharma SFA integration (ASP.NET Core + Angular call the Python service) and a .NET Manager Agent (Semantic Kernel / Agent Framework); morning briefing |
 | 📋 11 | Evaluation gates in CI (GitHub Actions), tracing, Entra ID and role-based data scope, Responsible AI notes, drift monitoring |
 | 📋 12 | Documentation, demo scripts and results summary |

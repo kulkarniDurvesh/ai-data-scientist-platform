@@ -67,6 +67,7 @@ visualization/        chart specs, recommender, engine, renderer, theme
 service/              session layer (session.py) shared by the dashboard and the API
 ui/                   Dash app: layout and callbacks (app.py), tab content (panels.py)
 api/                  FastAPI service: endpoints (main.py), Pydantic schemas, result views
+mcp_server/           MCP server exposing the agents' tools (python -m mcp_server)
 domains/              optional domain files (*.yaml): the ONLY place domain terms may appear
 knowledge/            documents for the Documents tab (data, like domains/; examples.txt = example questions)
 evals/                evaluation sets (goals.yaml, questions.yaml) + runner: python -m evals [--model]
@@ -80,6 +81,7 @@ docs/                 user guide, architecture, roadmap, images, examples
 pip install -r requirements.txt -r requirements-dev.txt
 python app.py --file path/to/data.xlsx      # http://127.0.0.1:8050, ?tab=<name> deep links
 python -m api                               # http://127.0.0.1:8000/docs
+python -m mcp_server                        # MCP server over stdio (--http PORT for HTTP)
 docker compose up --build                   # API :8000 + dashboard :8050
 python -m pytest -q
 ```

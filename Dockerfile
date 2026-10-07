@@ -20,6 +20,10 @@ COPY service ./service
 COPY ui ./ui
 COPY api ./api
 COPY domains ./domains
+COPY knowledge ./knowledge
+COPY mcp_server ./mcp_server
+COPY docs/*.md ./docs/
+COPY README.md .
 COPY app.py .
 
 # Run as a non-root user; saved models go to /app/models (mount a volume to keep them).

@@ -17,6 +17,8 @@ from pathlib import Path
 MAX_CHARS = 1200
 MIN_CHARS = 40
 SUFFIXES = (".md", ".txt")
+# Files in a document folder that are settings, not documents.
+RESERVED = {"examples.txt"}
 
 STOPWORDS = set("""
 a an the and or of to for in on at by with from into over under than then that this these those there
@@ -135,7 +137,10 @@ def load_corpus(paths: list[Path]) -> Corpus:
         if path.is_file() and path.suffix.lower() in SUFFIXES:
             files.append(path)
         elif path.is_dir():
-            files.extend(sorted(p for p in path.rglob("*") if p.suffix.lower() in SUFFIXES and p.is_file()))
+            files.extend(sorted(
+                p for p in path.rglob("*")
+                if p.suffix.lower() in SUFFIXES and p.is_file() and p.name.lower() not in RESERVED
+            ))
 
     corpus = Corpus()
     digest = hashlib.sha1()
