@@ -537,3 +537,7 @@ body {
 .doc-passage { font-size: 13px; color: var(--text-primary); margin: 6px 0 0 18px; }
 .doc-passage table { border-collapse: collapse; }
 .doc-passage td, .doc-passage th { border: 1px solid var(--border, #e5e5e5); padding: 2px 8px; }
+
+/* ---------- Assistant ---------- */
+.agent-user { font-weight: 600; margin: 0; }
+.agent-observation { white-space: pre-wrap; font-size: 12px; background: var(--surface-2, #f4f4f2); padding: 8px; border-radius: 6px; margin: 6px 0 0 18px; max-height: 260px; overflow: auto; }

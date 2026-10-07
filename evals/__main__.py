@@ -6,14 +6,14 @@ from pathlib import Path
 
 from core.llm import get_provider, use_provider
 
-from .runner import datasets, report, run_documents, run_goals, run_questions
+from .runner import datasets, report, run_agents, run_documents, run_goals, run_questions
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate goal and question interpretation.")
     parser.add_argument("--model", action="store_true", help="Use the configured language model (AIDS_LLM_PROVIDER).")
     parser.add_argument("--out", type=Path, help="Write the Markdown report to this file.")
-    parser.add_argument("--set", choices=["all", "goals", "questions", "documents"], default="all")
+    parser.add_argument("--set", choices=["all", "goals", "questions", "documents", "agents"], default="all")
     args = parser.parse_args()
 
     provider = get_provider(refresh=True) if args.model else None
@@ -29,6 +29,11 @@ def main() -> int:
             results += run_goals(bundles, provider)
         if args.set in ("all", "questions"):
             results += run_questions(bundles, provider)
+    if args.set == "agents":
+        if provider is None:
+            sys.stderr.write("The agent set needs --model.\n")
+            return 1
+        results += run_agents(datasets(), provider)
     if args.set in ("all", "documents"):
         if provider is not None:
             use_provider(provider)

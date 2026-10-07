@@ -46,6 +46,9 @@ from .schemas import (
     AskRequest,
     AskResponse,
     DatasetInfo,
+    AgentInfo,
+    AgentMessage,
+    AgentStarted,
     DocumentQuestion,
     DocumentSearch,
     DocumentStatus,
@@ -232,6 +235,28 @@ def run_goal(dataset_id: str, spec: GoalSpec) -> GoalRun:
         return GoalRun(tab=started_goal["tab"], answer=_ask_response(bundle, started_goal["entry"]))
     job_id = started_goal["job_id"]
     return GoalRun(tab=started_goal["tab"], job_id=job_id, status_url=f"/datasets/{bundle.id}/jobs/{job_id}")
+
+
+# ----------------------------------------------------------------------
+# Agents
+# ----------------------------------------------------------------------
+
+@app.get("/agents", response_model=list[AgentInfo], tags=["agents"])
+def agents() -> list[AgentInfo]:
+    from service.agents import AGENTS
+
+    return [AgentInfo(name=key, label=label, tools=tools) for key, (label, _, tools) in AGENTS.items()]
+
+
+@app.post("/datasets/{dataset_id}/agents/{agent}", response_model=AgentStarted, tags=["agents"])
+def agent_turn(dataset_id: str, agent: str, request: AgentMessage) -> AgentStarted:
+    """One turn of a conversation, run in the background; the job result is the answer with every step."""
+
+    from service.agents import start_agent_job
+
+    bundle = bundle_or_404(dataset_id)
+    job_id, conversation_id = start_agent_job(bundle, agent, request.message, request.conversation_id)
+    return AgentStarted(job_id=job_id, status_url=f"/datasets/{bundle.id}/jobs/{job_id}", conversation_id=conversation_id)
 
 
 # ----------------------------------------------------------------------

@@ -63,6 +63,8 @@ flowchart TB
 | `core/target_analysis.py` | Target detection and the target report (segments, feature signal, leakage, panel, split, drift, Markdown) |
 | `core/llm/` | Language-model layer: `provider` (one interface; Ollama, Azure OpenAI, scripted stand-in; settings from environment; availability check with reasons), `structured` (JSON-schema request, parse, Pydantic validation, one retry with the error) |
 | `core/NLP/llm_query.py` | Ask fallback: table description for the model, `QueryProposal` schema, validation into a `ParsedQuery` (columns matched, filter values must exist, numbers for numeric columns), description of the reading |
+| `core/agents/` | Agents: `tools` (Tool with Pydantic arguments, validated calls, errors as observations), `loop` (JSON-step protocol, step schema built from the agent's tools, trace, step limit, number check on final answers, conversation history) |
+| `service/agents.py` | Tools bound to a dataset (describe, ask data, ask / search documents, suggest / interpret / run goals, model summary, ask user), the AutoML builder and Analyst agents, conversations, background turns |
 | `core/rag/` | Documents: `documents` (load .md / .txt, heading-aware chunks with section paths, tables kept whole), `search` (BM25, reciprocal rank fusion), `embed` (Ollama embedding model or local LSA), `index` (build, fingerprint, save / load), `answer` (rarity-weighted coverage, extractive answers with citations, model answers with a sentence-level citation check) |
 | `service/knowledge.py` | Knowledge base shared by dashboard and API: default folders, saved index, refresh on change, background answers, uploads, example questions |
 | `core/narrate/` | Summaries: `facts` (dataset and model fact sheets with formatted numbers), `write` (template text, language-model rewrite, number grounding check) |
@@ -317,6 +319,30 @@ flowchart LR
 | Unknown words are reported | "Not understood: 'clients'" instead of silently ignoring part of the goal |
 | Defaults listed as choices | The user sees every automatic decision and can change it on the card |
 | Same pipelines as the tabs | A goal starts the existing job; results open in the matching tab; nothing new computes numbers |
+
+## Agents
+
+```mermaid
+flowchart LR
+    U[User message] --> L[Loop]
+    L -->|prompt: instructions + tools + transcript| M[Language model]
+    M -->|JSON step| V{Valid step?<br/>schema = agent's tools}
+    V -->|tool| T[Validate arguments<br/>run tool] -->|observation| L
+    V -->|ask_user| Q[Turn ends: question]
+    V -->|final_answer| G{Numbers in<br/>tool results?} --> A[Answer + trace]
+    V -->|invalid twice| E[Error, no crash]
+    T --- S[Session methods:<br/>ask, interpret / run goal,<br/>documents, summaries]
+```
+
+| Decision | Why |
+|---|---|
+| Hand-written loop first | Every part of an agent is visible and testable (prompt, step schema, validation, trace) before adopting a framework (Phase 8b) |
+| JSON steps instead of native function calling | Works with any chat model (small local models, Azure OpenAI, the scripted test model) |
+| Step schema built from the agent's tools | The model can only name tools the agent has; anything else fails validation |
+| Tools wrap session methods | An agent can do nothing the dashboard can't; the same validation applies |
+| Deterministic tools | Tools never call the model themselves: no nested model calls, predictable runs, faster on CPU |
+| ask_user ends the turn | Clarifying questions go to the user instead of being guessed; the conversation resumes with the answer |
+| Number check on final answers | A final answer can't introduce numbers no tool returned without being flagged |
 
 ## Documents (RAG)
 

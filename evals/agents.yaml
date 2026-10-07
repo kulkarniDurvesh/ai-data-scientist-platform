@@ -1,0 +1,32 @@
+# Agent evaluation set (Phase 8), run only with a language model:
+#   python -m evals --model --set agents
+# A case passes when the agent finishes, used the expected tools, and its
+# answer contains the expected words (case-insensitive).
+
+- id: automl-forecast
+  dataset: retail
+  agent: automl
+  message: forecast sales by region for the next 3 months
+  expect_tools: [interpret_goal, run_goal]
+  expect_answer: [forecast]
+
+- id: automl-vague
+  dataset: retail
+  agent: automl
+  message: what could I build with this data?
+  expect_tools: [suggest_goals]
+  expect_answer: []
+
+- id: analyst-data
+  dataset: retail
+  agent: analyst
+  message: how many customers are in the North region?
+  expect_tools: [ask_data]
+  expect_answer: [north]
+
+- id: analyst-documents
+  dataset: retail
+  agent: analyst
+  message: what is the meal allowance on field days according to the expense policy?
+  expect_tools: [ask_documents]
+  expect_answer: ["450"]

@@ -41,7 +41,7 @@ from service.session import DatasetBundle, store
 
 ASSETS_FOLDER = str(Path(__file__).parent / "assets")
 
-TAB_VALUES = {"overview", "goal", "docs", "auto", "builder", "ask", "target", "model", "recommend", "forecast", "segments", "why", "kpi", "board"}
+TAB_VALUES = {"overview", "goal", "docs", "assistant", "auto", "builder", "ask", "target", "model", "recommend", "forecast", "segments", "why", "kpi", "board"}
 
 HIDDEN = {"display": "none"}
 SHEET_PICKER = {"display": "flex", "alignItems": "center", "gap": "8px"}
@@ -280,6 +280,17 @@ def _layout(initial_id: str | None) -> html.Div:
                 ),
             ),
             dcc.Tab(
+                label="Assistant",
+                value="assistant",
+                className="tab",
+                selected_className="tab--selected",
+                children=dcc.Loading(
+                    html.Div(id="assistant-panel", className="panel"),
+                    type="dot",
+                    color="var(--accent)",
+                ),
+            ),
+            dcc.Tab(
                 label="Documents",
                 value="docs",
                 className="tab",
@@ -309,6 +320,7 @@ def _layout(initial_id: str | None) -> html.Div:
             dcc.Store(id="auto-owner", data=None),
             dcc.Store(id="goal-owner", data=None),
             dcc.Store(id="docs-owner", data=None),
+            dcc.Store(id="assistant-owner", data=None),
             dcc.Store(id="target-owner", data=None),
             dcc.Store(id="model-owner", data=None),
             dcc.Store(id="recommend-owner", data=None),
@@ -867,6 +879,90 @@ def _register_callbacks(app: Dash) -> None:
         if job["status"] == "error":
             return ui.message(f"The summary failed: {job['error']}", "error"), True
         return panels.narrative_body(job["result"]), True
+
+    # -- Assistant (agents) -------------------------------------------------
+
+    @app.callback(
+        Output("assistant-panel", "children"),
+        Output("assistant-owner", "data"),
+        Input("tabs", "value"),
+        Input("dataset-id", "data"),
+        State("assistant-owner", "data"),
+    )
+    def show_assistant(tab, dataset_id, owner):
+        if tab != "assistant" or dataset_id is None or owner == dataset_id:
+            return no_update, no_update
+        bundle = store.get(dataset_id)
+        if bundle is None:
+            return None, None
+        return _safe(panels.assistant_panel, bundle), dataset_id
+
+    @app.callback(
+        Output("agent-hint", "children"),
+        Input("agent-name", "value"),
+        prevent_initial_call=True,
+    )
+    def change_agent(name):
+        return panels.AGENT_HINTS.get(name, "")
+
+    @app.callback(
+        Output("agent-job", "data"),
+        Output("agent-poll", "disabled"),
+        Output("agent-progress", "children"),
+        Output("agent-conversation", "data"),
+        Output("agent-message", "value"),
+        Input("agent-send", "n_clicks"),
+        State("agent-message", "value"),
+        State("agent-name", "value"),
+        State("agent-conversation", "data"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def send_to_agent(clicks, message, name, conversation_id, dataset_id):
+        from service.agents import start_agent_job
+
+        bundle = store.get(dataset_id)
+        if not clicks or bundle is None:
+            return (no_update,) * 5
+        if not (message or "").strip():
+            return no_update, no_update, ui.message("Type a message first.", "info"), no_update, no_update
+        try:
+            job_id, conversation_id = start_agent_job(bundle, name or "automl", message.strip(), conversation_id)
+        except ValueError as error:
+            return None, True, ui.message(str(error), "error"), no_update, no_update
+        return job_id, False, panels.model_progress_view(bundle.model_job(job_id)), conversation_id, ""
+
+    @app.callback(
+        Output("agent-progress", "children", allow_duplicate=True),
+        Output("agent-poll", "disabled", allow_duplicate=True),
+        Output("agent-turns", "children"),
+        Input("agent-poll", "n_intervals"),
+        State("agent-job", "data"),
+        State("agent-conversation", "data"),
+        State("dataset-id", "data"),
+        prevent_initial_call=True,
+    )
+    def poll_agent(_ticks, job_id, conversation_id, dataset_id):
+        from service.agents import conversation_runs
+
+        bundle = store.get(dataset_id)
+        job = bundle.model_job(job_id) if bundle and job_id else None
+        if job is None:
+            return no_update, True, no_update
+        if job["status"] == "running":
+            return panels.model_progress_view(job), False, no_update
+        if job["status"] == "error":
+            return ui.message(f"The agent failed: {job['error']}", "error"), True, no_update
+        return None, True, panels.agent_turns_view(conversation_runs(bundle, conversation_id))
+
+    @app.callback(
+        Output("agent-conversation", "data", allow_duplicate=True),
+        Output("agent-turns", "children", allow_duplicate=True),
+        Input("agent-reset", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def reset_agent(clicks):
+        return (None, []) if clicks else (no_update, no_update)
 
     # -- Documents (RAG) ----------------------------------------------------
 

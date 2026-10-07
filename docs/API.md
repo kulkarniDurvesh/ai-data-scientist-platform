@@ -55,6 +55,8 @@ docker compose up --build         # API on :8000 and dashboard on :8050
 | GET | `/domains?dataset_id=` | Domain files and how many of their KPIs a dataset supports |
 | POST | `/datasets/{id}/kpis` | `{domain}` (file name) or `{domain_yaml}` (inline), `freq`, `group_role` → KPIs, breakdown, trend, unavailable |
 | GET | `/datasets/{id}/kpis/starter` | A starter domain file for the dataset |
+| GET | `/agents` | Agents and their tools |
+| POST | `/datasets/{id}/agents/{agent}` | `{message, conversation_id?}` → `{job_id, status_url, conversation_id}`; the job result has the `answer`, `status` (done / needs_input / step_limit / error), every `step` (tool, arguments, observation) and a `note` if the answer had unsupported numbers. Needs a language model |
 | GET | `/documents?refresh=` | Indexed documents: files, passages, embedder, build time |
 | POST | `/documents/search` | `{query, k, mode: hybrid\|keyword\|vector}` → ranked passages with section, source, ranks, similarity |
 | POST | `/documents/ask` | `{question, use_model}` → answer with numbered `sources`, `covered`, `method` (extractive / language model), `grounded`, `problems` |

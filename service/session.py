@@ -498,8 +498,8 @@ class DatasetBundle:
             )
         return self._goal_view
 
-    def interpret_goal(self, text: str) -> GoalPlan:
-        return interpret(text, self.goal_view(), get_provider())
+    def interpret_goal(self, text: str, use_model: bool = True) -> GoalPlan:
+        return interpret(text, self.goal_view(), get_provider() if use_model else None)
 
     def check_goal(self, spec: IntentSpec | dict, text: str = "") -> GoalPlan:
         """Re-validate a spec edited by the user (card choices, API clients)."""
@@ -649,7 +649,7 @@ class DatasetBundle:
     # Natural-language questions
     # ------------------------------------------------------------------
 
-    def ask(self, question: str) -> dict[str, Any]:
+    def ask(self, question: str, use_model: bool = True) -> dict[str, Any]:
         entry: dict[str, Any] = {
             "id": uuid.uuid4().hex[:8],
             "question": question,
@@ -685,7 +685,7 @@ class DatasetBundle:
 
             # The rules couldn't read it: a language model (when switched on)
             # proposes a query that is validated and computed like any other.
-            if attempt.error is not None and not attempt.ok:
+            if attempt.error is not None and not attempt.ok and use_model:
                 provider = get_provider()
                 if provider is not None:
                     fallback = self._model_attempt(self.sheet, question, provider)

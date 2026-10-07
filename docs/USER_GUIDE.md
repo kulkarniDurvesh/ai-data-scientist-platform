@@ -16,6 +16,7 @@ Start it with `python app.py` (or `python app.py --file data.xlsx`) and open <ht
 - [Segments tab](#segments-tab)
 - [Investigate tab](#investigate-tab)
 - [KPIs tab](#kpis-tab)
+- [Assistant tab](#assistant-tab)
 - [Documents tab](#documents-tab)
 - [My board tab](#my-board-tab)
 - [Troubleshooting](#troubleshooting)
@@ -345,6 +346,17 @@ kpis:
 ```
 
 Aggregations: `count` (rows or non-empty values of a column), `sum`, `mean`, `min`, `max`, `distinct`. Filters: a value, a list of values, or `{gt|ge|lt|le|ne|eq: value}`. A KPI without a denominator uses `value:`. Nothing in the file is run as code.
+
+## Assistant tab
+
+Talk to an agent that uses the platform for you. It needs a language model (`AIDS_LLM_PROVIDER=ollama` or `azure`); each step is one model call, so on a laptop CPU a turn can take a few minutes — the progress line shows each tool as it runs.
+
+| Agent | What it does | Tools |
+|---|---|---|
+| **AutoML builder** | Turns a goal into a model, plan, forecast, segmentation or explanation: reads the goal, asks what is missing, runs the pipeline, explains the result | describe_dataset, suggest_goals, interpret_goal, run_goal, summarize_model, ask_user |
+| **Analyst** | Answers questions from the data and the documents, and explains changes | describe_dataset, ask_data, ask_documents, search_documents, interpret_goal, run_goal, ask_user |
+
+Each turn shows your message, the answer and **Steps**: every tool call with its arguments, the agent's reason and the tool's result. When the agent asks a question, reply in the box — the conversation continues. **New conversation** starts over. Results of pipelines the agent ran also appear in their tabs (e.g. a forecast in the Forecast tab). If an answer contains a number no tool returned, it is flagged under the answer.
 
 ## Documents tab
 

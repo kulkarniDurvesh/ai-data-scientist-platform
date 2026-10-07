@@ -152,6 +152,27 @@ def run_documents(knowledge=None, use_model: bool = False) -> list[CaseResult]:
     return results
 
 
+def run_agents(bundles: dict[str, DatasetBundle], provider: Provider) -> list[CaseResult]:
+    """Agents with a real model: finished, used the expected tools, answer has the expected words."""
+
+    from core.agents import run_agent
+    from service.agents import make_agent
+
+    results = []
+    for case in load_set("agents"):
+        run = run_agent(make_agent(bundles[case["dataset"]], case["agent"]), case["message"], provider)
+        used = [s.action for s in run.steps]
+        mismatches = []
+        if run.status not in ("done", "needs_input"):
+            mismatches.append(f"status {run.status}: {run.note or ''}")
+        mismatches += [f"tool {t} not used (used {used})" for t in case.get("expect_tools", []) if t not in used]
+        mismatches += [f"answer lacks '{w}'" for w in case.get("expect_answer", []) if w.lower() not in run.answer.lower()]
+        if run.note and run.status == "done":
+            mismatches.append(run.note)
+        results.append(CaseResult("agents", case["id"], True, not mismatches, mismatches, provider.describe(), run.seconds))
+    return results
+
+
 def retrieval_metrics(results: list[CaseResult]) -> dict[str, float]:
     ranked = [r for r in results if r.set == "documents" and hasattr(r, "rank") and r.id and not r.id.startswith("off-topic")]
     ranks = [getattr(r, "rank", None) for r in ranked]
@@ -166,8 +187,9 @@ def retrieval_metrics(results: list[CaseResult]) -> dict[str, float]:
 def report(results: list[CaseResult], mode: str) -> str:
     lines = [f"# Evaluation report ({mode})", ""]
     lines += ["| Set | Wording | Passed | Accuracy | Mean seconds |", "|---|---|---|---|---|"]
-    for set_name in ("goals", "questions", "documents"):
-        labels = ((False, "plain"), (True, "paraphrase")) if set_name == "documents" else ((False, "plain"), (True, "needs a model"))
+    for set_name in ("goals", "questions", "documents", "agents"):
+        labels = {"documents": ((False, "plain"), (True, "paraphrase")), "agents": ((True, "with a model"),)}.get(
+            set_name, ((False, "plain"), (True, "needs a model")))
         for needs_model, label in labels:
             group = [r for r in results if r.set == set_name and r.needs_model == needs_model]
             if not group:

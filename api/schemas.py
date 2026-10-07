@@ -269,6 +269,23 @@ class DocumentStatus(BaseModel):
     sources: list[str]
 
 
+class AgentMessage(BaseModel):
+    message: str = Field(..., examples=["forecast sales by region for the next 3 months"])
+    conversation_id: str | None = Field(None, description="Continue a conversation (e.g. to answer the agent's question)")
+
+
+class AgentStarted(BaseModel):
+    job_id: str
+    status_url: str
+    conversation_id: str
+
+
+class AgentInfo(BaseModel):
+    name: str
+    label: str
+    tools: list[str]
+
+
 class DomainInfo(BaseModel):
     name: str
     file: str

@@ -2868,3 +2868,106 @@ def document_answer_view(answer) -> html.Div:
         [html.Div(blocks, className="card narrative-card"),
          html.Div([html.H3(title, className="card-title")] + sources, className="card narrative-card") if sources else None]
     )
+
+
+# ----------------------------------------------------------------------
+# Assistant (agents)
+# ----------------------------------------------------------------------
+
+AGENT_HINTS = {
+    "automl": "Describe what you want to build; the agent interprets it, asks what is missing, runs the pipeline and explains the result.",
+    "analyst": "Ask about the data and the documents; the agent looks things up with the platform's tools and cites them.",
+}
+
+
+def assistant_panel(bundle: DatasetBundle) -> html.Div:
+    from core.llm import provider_status
+    from service.agents import AGENTS
+
+    status = provider_status()
+    if status["available"]:
+        model_line = f"Language model: {status['provider']} ({status['model']}). Each step is one model call; on a laptop CPU a turn can take a few minutes."
+    else:
+        model_line = f"Agents need a language model. {status['detail']}"
+
+    return html.Div(
+        [
+            dcc.Store(id="agent-job"),
+            dcc.Store(id="agent-conversation"),
+            dcc.Interval(id="agent-poll", interval=1500, disabled=True),
+            ui.section(
+                "Assistant",
+                html.Div(
+                    [
+                        html.Div(
+                            [
+                                _dropdown("agent-name", "Agent",
+                                          [{"label": label, "value": key} for key, (label, _, _) in AGENTS.items()],
+                                          "automl", width="220px"),
+                            ],
+                            className="target-picker",
+                        ),
+                        html.Div(AGENT_HINTS["automl"], id="agent-hint", className="goal-llm"),
+                        html.Div(
+                            [
+                                dcc.Textarea(id="agent-message", className="input goal-input",
+                                             placeholder="e.g. which customers should we focus on next month?"),
+                                html.Button("Send", id="agent-send", n_clicks=0, className="btn btn-primary",
+                                            disabled=not status["available"]),
+                            ],
+                            className="ask-row",
+                        ),
+                        html.Div(
+                            [html.Button("New conversation", id="agent-reset", n_clicks=0, className="btn btn-ghost")],
+                            className="target-picker",
+                        ),
+                        html.Div(model_line, className="goal-llm"),
+                    ],
+                    className="card",
+                ),
+                "Agents plan with the language model and act only through the platform's tools (describe the data, "
+                "compute answers, search documents, interpret and run goals). Every step is shown with its tool, "
+                "arguments and result; numbers in answers must come from tool results.",
+            ),
+            html.Div(id="agent-progress"),
+            html.Div(id="agent-turns"),
+        ]
+    )
+
+
+def agent_turns_view(runs) -> list:
+    return [agent_turn_view(run) for run in reversed(runs)]
+
+
+def agent_turn_view(run) -> html.Div:
+    status = {
+        "done": None,
+        "needs_input": ui.message("The agent needs your answer: reply in the box above.", "warning"),
+        "step_limit": ui.message("Stopped at the step limit.", "info"),
+        "error": ui.message(run.note or "The agent failed.", "error"),
+    }[run.status]
+    steps = []
+    for index, step in enumerate(run.steps, 1):
+        if step.action == "final_answer":
+            continue
+        args = ", ".join(f"{k}={v!r}" for k, v in step.arguments.items())
+        steps.append(html.Details(
+            [
+                html.Summary([html.Strong(f"{index}. {step.action}"), f"({args})" if args else "",
+                              html.Span(f"  {step.seconds:.0f}s" + ("" if step.ok else "  failed"), className="goal-llm")]),
+                html.P(step.thought, className="goal-quote") if step.thought else None,
+                html.Pre(step.observation, className="agent-observation"),
+            ],
+            className="doc-source",
+        ))
+    return html.Div(
+        [
+            html.P(run.message, className="agent-user"),
+            html.P(run.answer or "(no answer)", className="narrative-text"),
+            status,
+            ui.message(run.note, "info") if run.note and run.status != "error" else None,
+            html.Details([html.Summary(f"Steps ({len(steps)} tool calls, {run.seconds:.0f}s)")] + steps,
+                         className="goal-assumptions") if steps else None,
+        ],
+        className="card narrative-card",
+    )

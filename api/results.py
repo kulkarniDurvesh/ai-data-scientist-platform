@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.agents import AgentRun
 from core.forecast import ForecastResult
 from core.modeling import ModelResult
 from core.recommend import RecommendResult
@@ -132,6 +133,8 @@ def investigation_result(result: Investigation) -> dict[str, Any]:
 
 
 def any_result(result: Any) -> dict[str, Any] | None:
+    if isinstance(result, AgentRun):
+        return {"type": "agent", **plain(result.to_dict())}
     for kind, view in (
         (ModelResult, model_result),
         (RecommendResult, recommend_result),
