@@ -36,3 +36,7 @@ Thumbs.db
 # Azure / infrastructure outputs
 .azure/
 infra/*.json
+
+# Knowledge index (rebuilt from knowledge/ and docs/)
+.rag_index/
+knowledge/uploads/

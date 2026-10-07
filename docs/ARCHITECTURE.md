@@ -63,6 +63,8 @@ flowchart TB
 | `core/target_analysis.py` | Target detection and the target report (segments, feature signal, leakage, panel, split, drift, Markdown) |
 | `core/llm/` | Language-model layer: `provider` (one interface; Ollama, Azure OpenAI, scripted stand-in; settings from environment; availability check with reasons), `structured` (JSON-schema request, parse, Pydantic validation, one retry with the error) |
 | `core/NLP/llm_query.py` | Ask fallback: table description for the model, `QueryProposal` schema, validation into a `ParsedQuery` (columns matched, filter values must exist, numbers for numeric columns), description of the reading |
+| `core/rag/` | Documents: `documents` (load .md / .txt, heading-aware chunks with section paths, tables kept whole), `search` (BM25, reciprocal rank fusion), `embed` (Ollama embedding model or local LSA), `index` (build, fingerprint, save / load), `answer` (rarity-weighted coverage, extractive answers with citations, model answers with a sentence-level citation check) |
+| `service/knowledge.py` | Knowledge base shared by dashboard and API: default folders, saved index, refresh on change, background answers, uploads, example questions |
 | `core/narrate/` | Summaries: `facts` (dataset and model fact sheets with formatted numbers), `write` (template text, language-model rewrite, number grounding check) |
 | `evals/` | Evaluation sets (`goals.yaml`, `questions.yaml`) and runner (`python -m evals [--model] [--out]`) on the synthetic datasets |
 | `core/intent/` | Goal box: `spec` (IntentSpec, GoalPlan, Question, task catalogue), `view` (tables a task can use), `rules` (generic cues, column and table name matching, time phrases, unknown words), `interpret_llm` (catalogue prompt, GoalProposal schema), `complete` (validation, corrections, defaults as assumptions, questions, summary), `engine` (hybrid interpret, suggestions) |
@@ -315,6 +317,32 @@ flowchart LR
 | Unknown words are reported | "Not understood: 'clients'" instead of silently ignoring part of the goal |
 | Defaults listed as choices | The user sees every automatic decision and can change it on the card |
 | Same pipelines as the tabs | A goal starts the existing job; results open in the matching tab; nothing new computes numbers |
+
+## Documents (RAG)
+
+```mermaid
+flowchart LR
+    F[knowledge/*.md, docs/*.md] --> C[Chunks<br/>heading path + text]
+    C --> K[BM25]
+    C --> E[Embeddings<br/>Ollama model or LSA]
+    Q[Question] --> K & E
+    K & E --> R[Reciprocal rank fusion]
+    R --> V{Covered?<br/>rare words found<br/>or close meaning}
+    V -->|no| N[Not covered + closest passages]
+    V -->|yes| X[Extractive answer with n]
+    V -->|yes, model on| L[Model answer] --> S{Each sentence:<br/>valid citation, numbers<br/>and words in the passage}
+    S -->|yes| A[Written answer]
+    S -->|no| X
+```
+
+| Decision | Why |
+|---|---|
+| Heading-aware chunks | A passage carries its section path (*SOP > Monthly plan*), so short passages are findable and citations are precise; tables are never split |
+| Hybrid search with rank fusion | BM25 catches exact codes and terms; vectors catch paraphrases; fusing ranks needs no score calibration |
+| LSA fallback | Works offline with no download; an embedding model is used automatically when installed |
+| NumPy index, not a vector database | A few hundred passages fit in memory; Azure AI Search takes over in the cloud (Phase 9) |
+| Coverage weighted by rarity | Matching common words ("company", "use") doesn't make a question covered; missing its distinctive words makes it "not covered" |
+| Sentence-level citation check | A written answer can't add numbers or claims its sources don't contain; the quoted answer is the safe fallback |
 
 ## Language model, grounded
 

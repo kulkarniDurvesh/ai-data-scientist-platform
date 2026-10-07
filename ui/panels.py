@@ -2748,3 +2748,123 @@ def narrative_card(kind: str, narrative) -> html.Div:
         ],
         className="card narrative-card",
     )
+
+
+# ----------------------------------------------------------------------
+# Documents (retrieval-augmented answers with citations)
+# ----------------------------------------------------------------------
+
+def documents_panel(question: str | None = None) -> html.Div:
+    from core.llm import get_provider
+    from service.knowledge import knowledge
+
+    try:
+        status = knowledge.refresh().status()
+    except Exception as error:  # noqa: BLE001 - shown to the user
+        return ui.message(f"The document index could not be built: {error}", "error")
+
+    model = get_provider()
+    examples = knowledge.examples()
+    embedder = {"lsa": "local LSA vectors (no embedding model installed)"}.get(
+        status["embedder"], status["embedder"].replace("ollama:", "Ollama embedding model ")
+    )
+    status_line = (
+        f"{status['files']} documents, {status['chunks']} passages; keyword search + {embedder}. "
+        f"Index built {status['built_at']}."
+    )
+
+    controls = [
+        html.Div(
+            [
+                dcc.Input(id="doc-question", type="text", placeholder="e.g. " + (examples[0] if examples else "what does the policy say about ..."),
+                          value=question or "", n_submit=0, className="input ask-input"),
+                html.Button("Ask", id="doc-ask", n_clicks=0, className="btn btn-primary"),
+            ],
+            className="ask-row",
+        ),
+        dcc.Checklist(
+            id="doc-use-model",
+            options=[{"label": " Write the answer with the language model (slower; every sentence is checked against its sources)",
+                      "value": "model", "disabled": model is None}],
+            value=[],
+            className="goal-llm",
+        ),
+        html.Div(
+            [html.Span("Try:", className="suggest-label")]
+            + [html.Button(q, id={"type": "doc-example", "index": i}, n_clicks=0, className="chip")
+               for i, q in enumerate(examples)],
+            className="suggestions",
+        ),
+        html.Div(status_line, className="goal-llm"),
+    ]
+    if status["notes"]:
+        controls.append(ui.message(" ".join(status["notes"]), "info"))
+
+    return html.Div(
+        [
+            dcc.Store(id="doc-job"),
+            dcc.Interval(id="doc-poll", interval=800, disabled=True),
+            ui.section(
+                "Ask the documents",
+                html.Div(controls, className="card"),
+                "Answers come only from the indexed documents (company procedures and policies in the knowledge "
+                "folder, and this project's documentation), always with numbered sources. Questions the documents "
+                "don't cover are answered with \"not covered\", not a guess.",
+            ),
+            # A question passed in the link (?tab=docs&q=...) is answered straight away.
+            html.Div(document_answer_view(knowledge.ask(question)) if question else None, id="doc-answer"),
+            ui.section(
+                "Documents",
+                html.Div(
+                    [
+                        html.Details([html.Summary(f"Indexed files ({len(status['sources'])})")]
+                                     + [html.Li(name) for name in status["sources"]]),
+                        html.Div(
+                            [
+                                dcc.Upload(html.Span("Add a .md or .txt document", className="btn btn-ghost"),
+                                           id="doc-upload", multiple=False),
+                                html.Button("Rebuild index", id="doc-rebuild", n_clicks=0, className="btn btn-ghost"),
+                            ],
+                            className="target-picker",
+                        ),
+                        html.Div(id="doc-upload-message"),
+                    ],
+                    className="card",
+                ),
+                "Added documents are stored in knowledge/uploads and indexed straight away.",
+            ),
+        ]
+    )
+
+
+def document_answer_view(answer) -> html.Div:
+    method = {
+        "language model": "Written by the language model; every sentence cites a passage and was checked against it.",
+        "extractive": "Quoted from the passages below.",
+    }[answer.method]
+    blocks = [html.H3("Answer", className="card-title")]
+    if not answer.covered:
+        blocks.append(ui.message(answer.text, "warning"))
+    else:
+        blocks.append(html.P(answer.text, className="narrative-text"))
+        blocks.append(html.Div(method, className="goal-llm"))
+    if answer.note:
+        blocks.append(ui.message(answer.note, "info"))
+
+    sources = []
+    for source in answer.sources:
+        chunk = source.hit.chunk
+        sources.append(html.Details(
+            [
+                html.Summary([html.Strong(f"[{source.number}] "), chunk.section,
+                              html.Span(f"  {chunk.source}", className="goal-llm")]),
+                dcc.Markdown(chunk.text, className="doc-passage"),
+            ],
+            open=source.number == 1 and answer.covered,
+            className="doc-source",
+        ))
+    title = "Sources" if answer.covered else "Closest passages (not relevant enough to answer)"
+    return html.Div(
+        [html.Div(blocks, className="card narrative-card"),
+         html.Div([html.H3(title, className="card-title")] + sources, className="card narrative-card") if sources else None]
+    )

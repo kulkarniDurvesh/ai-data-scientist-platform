@@ -248,6 +248,27 @@ class NarrativeOut(BaseModel):
     facts: dict[str, str]
 
 
+class DocumentQuestion(BaseModel):
+    question: str = Field(..., examples=["how quickly must a suspected side effect be reported"])
+    use_model: bool = Field(False, description="Write the answer with the language model (checked against its sources)")
+
+
+class DocumentSearch(BaseModel):
+    query: str
+    k: int = Field(5, ge=1, le=20)
+    mode: Literal["hybrid", "keyword", "vector"] = "hybrid"
+
+
+class DocumentStatus(BaseModel):
+    files: int
+    chunks: int
+    embedder: str
+    built_at: str
+    seconds: float
+    notes: list[str]
+    sources: list[str]
+
+
 class DomainInfo(BaseModel):
     name: str
     file: str

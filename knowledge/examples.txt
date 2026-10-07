@@ -1,0 +1,4 @@
+how many visits per month does a class A doctor get
+how quickly must a suspected side effect be reported
+what is the meal allowance on field days
+how do I start the API and dashboard with docker

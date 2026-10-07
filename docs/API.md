@@ -55,6 +55,11 @@ docker compose up --build         # API on :8000 and dashboard on :8050
 | GET | `/domains?dataset_id=` | Domain files and how many of their KPIs a dataset supports |
 | POST | `/datasets/{id}/kpis` | `{domain}` (file name) or `{domain_yaml}` (inline), `freq`, `group_role` → KPIs, breakdown, trend, unavailable |
 | GET | `/datasets/{id}/kpis/starter` | A starter domain file for the dataset |
+| GET | `/documents?refresh=` | Indexed documents: files, passages, embedder, build time |
+| POST | `/documents/search` | `{query, k, mode: hybrid\|keyword\|vector}` → ranked passages with section, source, ranks, similarity |
+| POST | `/documents/ask` | `{question, use_model}` → answer with numbered `sources`, `covered`, `method` (extractive / language model), `grounded`, `problems` |
+| POST | `/documents` | Upload a .md / .txt document (multipart `file`); the index is rebuilt |
+| POST | `/documents/reindex` | Rebuild the index |
 | GET | `/llm/status?refresh=` | Which language model is in use (Ollama, Azure OpenAI or none, with the reason) |
 | GET | `/datasets/{id}/goals/suggestions` | Goals the dataset supports, each validated and ready to run |
 | POST | `/datasets/{id}/goals/interpret` | `{text}` → plan: spec, summary, choices made, warnings, questions, allowed options per field |
@@ -137,6 +142,8 @@ curl -s -X POST http://127.0.0.1:8000/datasets/8f1c.../goals/run \
 |---|---|
 | `AIDS_API_KEY` | When set, every request needs the header `X-API-Key: <value>` (otherwise `401`) |
 | `AIDS_CORS_ORIGINS` | Comma-separated origins allowed by CORS, e.g. `http://localhost:4200` for an Angular dev server (default `*`) |
+| `AIDS_EMBED_PROVIDER`, `AIDS_EMBED_MODEL` | Document vectors: `auto` (default: Ollama embedding model if installed, else local LSA), `ollama`, `lsa`; model default `nomic-embed-text` |
+| `AIDS_KNOWLEDGE_PATHS` | Folders / files to index, separated by the OS path separator (default: `knowledge/`, `docs/*.md`, `README.md`) |
 | `AIDS_LLM_PROVIDER` | `none` (default, rules only), `ollama`, `azure`, or `auto` (Azure OpenAI if configured, else Ollama if running) |
 | `AIDS_LLM_NUM_CTX`, `AIDS_LLM_THINK` | Ollama context window (default 8192 tokens) and reasoning mode (default off: thinking takes minutes on a CPU) |
 | `AIDS_LLM_MODEL`, `AIDS_OLLAMA_HOST` | Ollama model tag (default `qwen3.5:4b`) and address (default `http://127.0.0.1:11434`) |

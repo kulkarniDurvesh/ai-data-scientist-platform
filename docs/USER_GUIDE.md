@@ -16,6 +16,7 @@ Start it with `python app.py` (or `python app.py --file data.xlsx`) and open <ht
 - [Segments tab](#segments-tab)
 - [Investigate tab](#investigate-tab)
 - [KPIs tab](#kpis-tab)
+- [Documents tab](#documents-tab)
 - [My board tab](#my-board-tab)
 - [Troubleshooting](#troubleshooting)
 
@@ -344,6 +345,19 @@ kpis:
 ```
 
 Aggregations: `count` (rows or non-empty values of a column), `sum`, `mean`, `min`, `max`, `distinct`. Filters: a value, a list of values, or `{gt|ge|lt|le|ne|eq: value}`. A KPI without a denominator uses `value:`. Nothing in the file is run as code.
+
+## Documents tab
+
+Ask a question about the company documents (procedures, policies, product sheets in the `knowledge` folder) or about this platform (its documentation is indexed too).
+
+| Part | What it shows |
+|---|---|
+| **Answer** | The sentences of the documents that answer the question, each followed by its source number `[1]`. With *Write the answer with the language model* ticked (needs `AIDS_LLM_PROVIDER`), a written answer instead — kept only if every sentence cites a passage, its numbers appear there and its words are supported; otherwise the quoted answer and the reason are shown |
+| **Not covered** | Shown when the question's important words are not in the documents (e.g. *"what is the capital of France"*) — the closest passages are listed so you can check |
+| **Sources** | Each numbered passage with its document, section path and file; open it to read the full passage |
+| **Documents** | The indexed files, *Add a .md or .txt document* (saved in `knowledge/uploads`) and *Rebuild index* |
+
+Search combines keywords (exact terms such as a document code) with vectors (similar meaning). The status line says which vectors are used: an Ollama embedding model (`ollama pull nomic-embed-text`, picked up automatically) or local LSA vectors (no download; weaker on paraphrases). A question can be shared as a link: `?tab=docs&q=<question>`.
 
 ## My board tab
 

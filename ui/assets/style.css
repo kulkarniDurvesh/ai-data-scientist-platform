@@ -530,3 +530,10 @@ body {
 .narrative-card .card-title { margin: 0; }
 .narrative-text { margin: 0; line-height: 1.6; }
 .narrative-card > .btn { align-self: flex-start; }
+
+/* ---------- Documents ---------- */
+.doc-source { border-top: 1px solid var(--border, #e5e5e5); padding: 8px 0; }
+.doc-source summary { cursor: pointer; }
+.doc-passage { font-size: 13px; color: var(--text-primary); margin: 6px 0 0 18px; }
+.doc-passage table { border-collapse: collapse; }
+.doc-passage td, .doc-passage th { border: 1px solid var(--border, #e5e5e5); padding: 2px 8px; }

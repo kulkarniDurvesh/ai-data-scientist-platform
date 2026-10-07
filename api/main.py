@@ -37,6 +37,7 @@ from core.recommend import PlanSettings
 from core.segment import SegmentSpec
 from core.target_analysis import detect_targets, report_markdown
 from core.why import ChangeSpec, investigate
+from service.knowledge import knowledge
 from service.session import DatasetBundle, DatasetStore
 
 from . import results
@@ -45,6 +46,9 @@ from .schemas import (
     AskRequest,
     AskResponse,
     DatasetInfo,
+    DocumentQuestion,
+    DocumentSearch,
+    DocumentStatus,
     DomainInfo,
     ForecastRequest,
     GoalPlanOut,
@@ -228,6 +232,41 @@ def run_goal(dataset_id: str, spec: GoalSpec) -> GoalRun:
         return GoalRun(tab=started_goal["tab"], answer=_ask_response(bundle, started_goal["entry"]))
     job_id = started_goal["job_id"]
     return GoalRun(tab=started_goal["tab"], job_id=job_id, status_url=f"/datasets/{bundle.id}/jobs/{job_id}")
+
+
+# ----------------------------------------------------------------------
+# Documents (retrieval-augmented answers with citations)
+# ----------------------------------------------------------------------
+
+@app.get("/documents", response_model=DocumentStatus, tags=["documents"])
+def documents_status(refresh: bool = False) -> DocumentStatus:
+    index = knowledge.refresh() if refresh else knowledge.index()
+    return DocumentStatus(**index.status())
+
+
+@app.post("/documents/search", tags=["documents"])
+def documents_search(request: DocumentSearch) -> list[dict[str, Any]]:
+    """Ranked passages: hybrid (BM25 + vectors, fused by reciprocal rank), keyword or vector."""
+
+    return [plain(hit.to_dict()) for hit in knowledge.search(request.query, request.k, request.mode)]
+
+
+@app.post("/documents/ask", tags=["documents"])
+def documents_ask(request: DocumentQuestion) -> dict[str, Any]:
+    """An answer with numbered sources, or covered=false when the documents don't answer it."""
+
+    return plain(knowledge.ask(request.question, request.use_model).to_dict())
+
+
+@app.post("/documents", response_model=DocumentStatus, tags=["documents"])
+async def documents_add(file: UploadFile = File(...)) -> DocumentStatus:
+    knowledge.add_document(file.filename or "document.md", await file.read())
+    return DocumentStatus(**knowledge.index().status())
+
+
+@app.post("/documents/reindex", response_model=DocumentStatus, tags=["documents"])
+def documents_reindex() -> DocumentStatus:
+    return DocumentStatus(**knowledge.index(rebuild=True).status())
 
 
 # ----------------------------------------------------------------------

@@ -1,0 +1,101 @@
+# Document retrieval evaluation set (Phase 7), on knowledge/ and the project docs.
+#
+# expect: the passage that answers - its file (source) and a phrase it contains.
+# A case passes when that passage is in the top 3 (hit@3); the report also
+# gives hit@1 and MRR. not_covered: the right answer is a refusal.
+# paraphrase: wording that shares few words with the document - needs embeddings.
+
+- id: visit-frequency
+  question: how many visits per month does a class A doctor get
+  expect: {source: visit_planning_sop.md, text: "| A |"}
+
+- id: visit-gap
+  question: what is the minimum gap between two visits to the same doctor
+  expect: {source: visit_planning_sop.md, text: "7 days apart"}
+
+- id: plan-deadline
+  question: by which date must the monthly visit plan be submitted
+  expect: {source: visit_planning_sop.md, text: "25th"}
+
+- id: follow-up-days
+  question: within how many days must a follow-up happen after a visit marked follow-up required
+  expect: {source: visit_planning_sop.md, text: "14 days"}
+
+- id: sample-limit
+  question: how many sample packs of one product can a doctor receive per month
+  expect: {source: sample_distribution_policy.md, text: "4 sample packs"}
+
+- id: sample-expired
+  question: what happens to expired samples
+  expect: {source: sample_distribution_policy.md, text: "returned to the regional depot"}
+
+- id: meal-allowance
+  question: what is the meal allowance on field days
+  expect: {source: expense_policy.md, text: "INR 450"}
+
+- id: claim-approval
+  question: who approves expense claims above 10,000 per week
+  expect: {source: expense_policy.md, text: "regional manager"}
+
+- id: gifts
+  question: are gifts to doctors allowed
+  expect: {source: expense_policy.md, text: "Gifts to doctors are not allowed"}
+
+- id: safety-reporting
+  question: how quickly must a suspected side effect be reported
+  expect: {source: product_sheets.md, text: "24 hours"}
+
+- id: product-therapy
+  question: which therapy area is Glucora for
+  expect: {source: product_sheets.md, text: "Diabetology"}
+
+- id: order-conversion
+  question: how is order conversion rate calculated
+  expect: {source: order_booking_process.md, text: "Order conversion rate"}
+
+- id: consent-withdrawal
+  question: what must the MR do when a doctor withdraws consent
+  expect: {source: data_privacy_and_crm.md, text: "withdraw consent"}
+
+- id: negative-days
+  question: can days since last visit be negative
+  expect: {source: data_privacy_and_crm.md, text: "never be negative"}
+
+- id: competitor-flag
+  question: when is a territory flagged for a brand review on competitor activity
+  expect: {source: competitor_reporting.md, text: "two consecutive months"}
+
+- id: project-docker
+  question: how do I start the API and dashboard with docker
+  expect: {source: docs/API.md, text: "docker compose up"}
+
+- id: project-goal-box
+  question: what happens when a goal mentions a column that does not exist
+  expect: {source: docs/USER_GUIDE.md, text: "doesn't exist"}
+
+# Refusals
+
+- id: off-topic
+  question: who won the football world cup in 2018
+  not_covered: true
+
+- id: off-topic-car
+  question: what is the rate per kilometre for a company car
+  not_covered: true
+
+# Paraphrases (few shared words)
+
+- id: paraphrase-frequency
+  question: how often should I see my most important doctors
+  expect: {source: visit_planning_sop.md, text: "| A |"}
+  paraphrase: true
+
+- id: paraphrase-selling
+  question: may I trade free medicine packs for favours
+  expect: {source: sample_distribution_policy.md, text: "Selling samples"}
+  paraphrase: true
+
+- id: paraphrase-privacy
+  question: can I email the list of my physicians to my personal account
+  expect: {source: data_privacy_and_crm.md, text: "personal email are not allowed"}
+  paraphrase: true

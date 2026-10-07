@@ -120,17 +120,68 @@ def run_questions(bundles: dict[str, DatasetBundle], provider: Provider | None) 
     return results
 
 
+def run_documents(knowledge=None, use_model: bool = False) -> list[CaseResult]:
+    """Retrieval: is the answering passage in the top 3? Refusals: is the answer 'not covered'?"""
+
+    from service.knowledge import KnowledgeBase
+
+    knowledge = knowledge or KnowledgeBase(cache=None)
+    index = knowledge.index()
+    results = []
+    for case in load_set("documents"):
+        start = time.time()
+        mismatches: list[str] = []
+        rank = None
+        if case.get("not_covered"):
+            answer = knowledge.ask(case["question"], use_model)
+            if answer.covered:
+                mismatches.append(f"expected 'not covered', got: {answer.text[:80]}")
+        else:
+            hits = index.search(case["question"], k=10)
+            expect = case["expect"]
+            for position, hit in enumerate(hits, 1):
+                if hit.chunk.source.endswith(expect["source"]) and expect["text"].lower() in hit.chunk.text.lower():
+                    rank = position
+                    break
+            if rank is None or rank > 3:
+                mismatches.append(f"answering passage at rank {rank or '>10'}; top: {hits[0].chunk.section if hits else '-'}")
+        result = CaseResult("documents", case["id"], bool(case.get("paraphrase")), not mismatches,
+                            mismatches, index.embedder_name, time.time() - start)
+        result.rank = rank
+        results.append(result)
+    return results
+
+
+def retrieval_metrics(results: list[CaseResult]) -> dict[str, float]:
+    ranked = [r for r in results if r.set == "documents" and hasattr(r, "rank") and r.id and not r.id.startswith("off-topic")]
+    ranks = [getattr(r, "rank", None) for r in ranked]
+    n = len(ranks) or 1
+    return {
+        "hit@1": sum(1 for x in ranks if x == 1) / n,
+        "hit@3": sum(1 for x in ranks if x and x <= 3) / n,
+        "mrr": sum(1 / x for x in ranks if x) / n,
+    }
+
+
 def report(results: list[CaseResult], mode: str) -> str:
     lines = [f"# Evaluation report ({mode})", ""]
     lines += ["| Set | Wording | Passed | Accuracy | Mean seconds |", "|---|---|---|---|---|"]
-    for set_name in ("goals", "questions"):
-        for needs_model, label in ((False, "plain"), (True, "needs a model")):
+    for set_name in ("goals", "questions", "documents"):
+        labels = ((False, "plain"), (True, "paraphrase")) if set_name == "documents" else ((False, "plain"), (True, "needs a model"))
+        for needs_model, label in labels:
             group = [r for r in results if r.set == set_name and r.needs_model == needs_model]
             if not group:
                 continue
             passed = sum(r.passed for r in group)
             seconds = sum(r.seconds for r in group) / len(group)
             lines.append(f"| {set_name} | {label} | {passed}/{len(group)} | {passed / len(group):.0%} | {seconds:.1f} |")
+    documents = [r for r in results if r.set == "documents"]
+    if documents:
+        for label, group in (("plain", [r for r in documents if not r.needs_model]), ("paraphrase", [r for r in documents if r.needs_model])):
+            metrics = retrieval_metrics(group)
+            lines.append("")
+            lines.append(f"Retrieval ({label}, embedder {documents[0].source}): hit@1 {metrics['hit@1']:.0%}, "
+                         f"hit@3 {metrics['hit@3']:.0%}, MRR {metrics['mrr']:.2f}")
     failures = [r for r in results if not r.passed]
     if failures:
         lines += ["", "## Failures", ""]

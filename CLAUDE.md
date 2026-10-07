@@ -14,7 +14,7 @@ This platform must work on **any** dataset. The pharma SFA workbook is only a te
 - **Derive everything from the data**: column roles (`core/schema_inference.py`), values and cardinalities, links between sheets (`core/workbook.py`), name tokens (`name_tokens`, `key_entity_name`, `same_word`), date grains, statistics.
 - **Generic word lists are allowed only as hints** (English words such as `id`, `code`, `next`, `success`, `not`), never as domain vocabulary. Every value proposed from such a hint must be shown to the user and be overridable.
 - **User-facing text must not contain domain words.** Build nouns from the data (e.g. `key_entity_name("DoctorId")` → "doctor") or use neutral examples ("customer", "account").
-- **Domain specifics** belong only in optional configuration files (`domains/*.yaml`, read by `core/kpi/`), never in code, and the platform must work without them.
+- **Domain specifics** belong only in optional configuration and data files (`domains/*.yaml`, read by `core/kpi/`; documents in `knowledge/`), never in code, and the platform must work without them.
 - Comments and docstrings may cite examples from any dataset; mark them as examples.
 - Language-model output is a proposal: it always goes through the same validation as user input (`core/intent/complete.py`), and the platform must work with no model (`AIDS_LLM_PROVIDER=none`). Tests use `ScriptedProvider`, never a live model.
 - Before finishing any change, search for hardcoded names: `grep -rniE "doctor|territor|mrid|visit|pharma" core ui visualization` should only hit comments and docstrings.
@@ -60,11 +60,13 @@ core/                 domain-agnostic engine
   llm/                language-model providers (Ollama, Azure OpenAI, scripted) + validated structured output
   intent/             goal box: rules -> language model when unsure -> validation -> plan; suggestions
   narrate/            fact sheets, template summaries, number-checked model summaries
+  rag/                documents -> chunks -> BM25 + vectors -> fused search -> cited answers
 visualization/        chart specs, recommender, engine, renderer, theme
 service/              session layer (session.py) shared by the dashboard and the API
 ui/                   Dash app: layout and callbacks (app.py), tab content (panels.py)
 api/                  FastAPI service: endpoints (main.py), Pydantic schemas, result views
 domains/              optional domain files (*.yaml): the ONLY place domain terms may appear
+knowledge/            documents for the Documents tab (data, like domains/; examples.txt = example questions)
 evals/                evaluation sets (goals.yaml, questions.yaml) + runner: python -m evals [--model]
 tests/                pytest, synthetic data only
 docs/                 user guide, architecture, roadmap, images, examples

@@ -76,8 +76,8 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 | 5 | HTTP API: FastAPI + Pydantic, 21 endpoints, background jobs, saved-model scoring, API key, CORS, Docker / compose | ✅ Done |
 | 6a | LLM layer (Ollama / Azure OpenAI, validated structured output) and the **free-text goal box**: hybrid interpreter, validation with questions, editable card, suggestions from the data, goal API | ✅ Done |
 | 6b | LLM fallback for the Ask box (validated query, computed by pandas), summaries grounded in computed facts with a number check, evaluation sets with a runner | ✅ Done |
-| 7 | RAG over documents with citations and retrieval metrics | 🔜 Next |
-| 8 | Agentic AI (AutoML orchestrator, analyst agent, MCP server) | 📋 Planned |
+| 7 | RAG over documents: heading-aware chunks, hybrid BM25 + vector search (Ollama embeddings or local LSA) with rank fusion, cited extractive answers or checked model answers, Documents tab, document API, retrieval evaluation | ✅ Done |
+| 8 | Agentic AI (AutoML orchestrator, analyst agent, MCP server) | 🔜 Next |
 | 9–11 | Azure (Bicep), .NET SFA integration + Manager Agent, evaluation and governance | 📋 Planned |
 
 ## Screenshots
@@ -139,6 +139,13 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 <summary><b>KPIs</b> — business KPIs from a domain file: current vs previous, trend, breakdown by role, definitions (click to expand)</summary>
 
 ![KPIs tab](docs/images/kpis.png)
+
+</details>
+
+<details>
+<summary><b>Documents</b> — answers from company documents with numbered, checkable sources (click to expand)</summary>
+
+![Documents tab](docs/images/documents.png)
 
 </details>
 
@@ -252,6 +259,13 @@ The real-world use case is a **pharma Sales Force Automation (SFA)** app: doctor
 - **Editable confirmation card (D):** goal, table and every field as dropdowns, re-validated on each change; **Run** starts the same tested pipeline as the tab (model, plan, forecast, segments, investigation or question), then opens its results.
 - **Suggestions from the data (E):** one-click goals the dataset supports, each already validated (e.g. *Rank by Next Month Order for each doctor*, *Plan which doctors each MR should contact*).
 - **Works without a model — and that is the default:** a 4B model on a laptop CPU took ~45 s per goal (measured with `qwen3.5:4b`), so the model is opt-in (`AIDS_LLM_PROVIDER=ollama` or `azure`); rules + questions + the card; the Goal tab says which model is in use and why not when none is. Shareable links: `?tab=goal&goal=<text>`.
+
+### Documents: answers with citations (Phase 7, RAG)
+- **Ask the documents** (Documents tab, `POST /documents/ask`): company procedures, policies and product sheets (a synthetic, fictional set in `knowledge/sfa/`) and this project's documentation. Every answer has **numbered sources** that open to the passage; questions the documents don't cover get *"not covered"*, not a guess.
+- **Hybrid retrieval:** documents are split at headings (each passage keeps its heading path, tables stay whole), searched with **BM25** keywords and **vectors**, fused by **reciprocal rank fusion** — exact terms (*SOP-FF-01*, *class A*) and paraphrases both count. Vectors come from an Ollama embedding model (`nomic-embed-text`) when installed, else local **LSA** (TF-IDF + SVD), so it works offline with no download.
+- **Answers:** instant **extractive** answers (the best-matching sentences with `[n]` citations), or — with a language model on — a **written** answer that is checked sentence by sentence: each sentence must cite a retrieved passage, its numbers must appear in that passage and its words must be supported, otherwise the quoted answer is shown with the reason. Live check with `qwen3.5:4b`: a fully cited answer (grounded 100%) in 33 s.
+- **Measured** ([report](docs/examples/eval_documents.md)): 22 retrieval cases — plain questions **hit@3 100%**, hit@1 71%, MRR 0.83 (the indexed README restates some policy facts, so it competes for first place), both off-topic questions refused; paraphrases hit@3 67% with LSA (an embedding model is what helps there).
+- **Add documents** (.md / .txt) in the tab or with `POST /documents`; the saved index is rebuilt when files or the embedder change. Shareable links: `?tab=docs&q=<question>`.
 
 ### Language-model features (Phase 6b) — optional, always checked
 - **Ask fallback:** when the rules can't read a question (*"how much did we make in the south?"*), the language model proposes the same structured query the rule parser makes; columns and **filter values are checked against the data** (*'Atlantis' is not a value of Region*), then the existing planner and pandas engine compute the answer, shown with how the model read it. The model never produces a number.
@@ -462,13 +476,15 @@ KPIs tab with `domains/pharma_sfa.yaml`, December vs November 2025:
 │   ├── llm/                   # language-model providers (Ollama, Azure OpenAI) + validated structured output
 │   ├── intent/                # goal box: rules → language model → validation → plan; suggestions
 │   ├── narrate/               # fact sheets, template summaries, number-checked model summaries
+│   ├── rag/                   # documents → chunks → BM25 + vectors → fused search → cited answers
 │   └── NLP/                   # Ask engine: parser → planner → engine → answer
 ├── visualization/             # chart specs, recommender, engine, renderer, validator
 ├── service/                   # session layer shared by the dashboard and the API
 ├── ui/                        # Dash app: layout, callbacks, panels, styles
 ├── api/                       # FastAPI service: endpoints, schemas, result views
 ├── domains/                   # optional domain files (roles + KPI formulas); the only place for domain terms
-├── evals/                     # evaluation sets (goals, questions) + runner: python -m evals [--model]
+├── knowledge/                 # documents for the Documents tab (synthetic SFA policies; data, not code)
+├── evals/                     # evaluation sets (goals, questions, documents) + runner: python -m evals [--model]
 ├── tests/                     # pytest suite on synthetic, non-pharma datasets
 └── docs/                      # architecture, user guide, roadmap, screenshots, examples
 ```
@@ -488,7 +504,7 @@ python -m pytest -q
 python -m evals                  # interpretation accuracy (rules); --model adds the language model
 ```
 
-The suite (134 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, month plans with one MR per doctor and levelled load, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage), segmentation (planted groups recovered, planted outliers flagged, redundancy and exact totals found, bands), why-analysis (planted cause found, contributions add up, pure mix shift separated, collapsing entity ranked first, why-questions), KPIs (hand-checked values, cross-table ratios, unavailable reasons, partial periods, starter files), the HTTP API (every endpoint, jobs, saved-model scoring, API key), the goal box (rules for every task, unknown words reported, invented columns turned into questions, corrections, suggestions, scripted language-model replies, fallback when the model fails, structured-output retries, running goals), the language-model features (Ask fallback computed by pandas, unknown values and columns refused, rules never call the model, number-checked summaries, evaluation sets) and dashboard rendering.
+The suite (145 tests) covers schema inference, data quality, charts, the Ask engine (dates, lists, charts, fuzzy matching, routing), multi-sheet linking, target analysis (leakage, segments, panel split), the model builder (beats the baseline, leak exclusion, non-overlapping time windows, registry round trip, background jobs), the recommender (point-in-time features, every planning rule, month plans with one MR per doctor and levelled load, backtest beats random, flat tables without lookup sheets), forecasting (bucketing and splits add up, incomplete periods, defaults, models beat baselines, interval coverage), segmentation (planted groups recovered, planted outliers flagged, redundancy and exact totals found, bands), why-analysis (planted cause found, contributions add up, pure mix shift separated, collapsing entity ranked first, why-questions), KPIs (hand-checked values, cross-table ratios, unavailable reasons, partial periods, starter files), the HTTP API (every endpoint, jobs, saved-model scoring, API key), the goal box (rules for every task, unknown words reported, invented columns turned into questions, corrections, suggestions, scripted language-model replies, fallback when the model fails, structured-output retries, running goals), the language-model features (Ask fallback computed by pandas, unknown values and columns refused, rules never call the model, number-checked summaries, evaluation sets), document answers (heading-aware chunks, hybrid search, citations, refusals, model answers rejected for invented numbers / missing or wrong citations, saved index rebuilt on change, uploads, embedder fallback, retrieval evaluation) and dashboard rendering.
 
 ## Roadmap
 
@@ -503,7 +519,7 @@ The suite (134 tests) covers schema inference, data quality, charts, the Ask eng
 | ✅ 5 | Python service with typed endpoints | FastAPI, Pydantic, Docker |
 | ✅ 6a | LLM layer (one interface for local and cloud models, validated structured output) and the **free-text goal box** ([design](#free-text-goals-phase-6a)) | Ollama, Azure OpenAI, Pydantic |
 | ✅ 6b | LLM fallback for the Ask box, grounded summaries, evaluation sets | Ollama, Azure OpenAI |
-| 7 | RAG over SOP/policy/product documents with citations and retrieval metrics | ChromaDB, Azure AI Search |
+| ✅ 7 | RAG over SOP/policy/product documents with citations and retrieval metrics | BM25, Ollama embeddings / LSA, NumPy index (Azure AI Search in Phase 9) |
 | 8 | Agentic AI: free-text goal → plan → clarifying questions → pipelines; analyst agent; MCP server; multi-agent | Microsoft Agent Framework, MCP |
 | 9 | On-demand Azure deployment, deleted automatically after use | Bicep deployment stacks, Container Apps, Key Vault, managed identity |
 | 10 | Pharma SFA integration and a .NET Manager Agent | ASP.NET Core, Semantic Kernel / Agent Framework |

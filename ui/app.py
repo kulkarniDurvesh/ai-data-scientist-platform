@@ -41,7 +41,7 @@ from service.session import DatasetBundle, store
 
 ASSETS_FOLDER = str(Path(__file__).parent / "assets")
 
-TAB_VALUES = {"overview", "goal", "auto", "builder", "ask", "target", "model", "recommend", "forecast", "segments", "why", "kpi", "board"}
+TAB_VALUES = {"overview", "goal", "docs", "auto", "builder", "ask", "target", "model", "recommend", "forecast", "segments", "why", "kpi", "board"}
 
 HIDDEN = {"display": "none"}
 SHEET_PICKER = {"display": "flex", "alignItems": "center", "gap": "8px"}
@@ -280,6 +280,17 @@ def _layout(initial_id: str | None) -> html.Div:
                 ),
             ),
             dcc.Tab(
+                label="Documents",
+                value="docs",
+                className="tab",
+                selected_className="tab--selected",
+                children=dcc.Loading(
+                    html.Div(id="docs-panel", className="panel"),
+                    type="dot",
+                    color="var(--accent)",
+                ),
+            ),
+            dcc.Tab(
                 id="board-tab",
                 label="My board",
                 value="board",
@@ -297,6 +308,7 @@ def _layout(initial_id: str | None) -> html.Div:
             dcc.Store(id="board", data=[]),
             dcc.Store(id="auto-owner", data=None),
             dcc.Store(id="goal-owner", data=None),
+            dcc.Store(id="docs-owner", data=None),
             dcc.Store(id="target-owner", data=None),
             dcc.Store(id="model-owner", data=None),
             dcc.Store(id="recommend-owner", data=None),
@@ -855,6 +867,95 @@ def _register_callbacks(app: Dash) -> None:
         if job["status"] == "error":
             return ui.message(f"The summary failed: {job['error']}", "error"), True
         return panels.narrative_body(job["result"]), True
+
+    # -- Documents (RAG) ----------------------------------------------------
+
+    @app.callback(
+        Output("docs-panel", "children"),
+        Output("docs-owner", "data"),
+        Input("tabs", "value"),
+        State("docs-owner", "data"),
+        State("url", "search"),
+    )
+    def show_documents(tab, owner, search):
+        if tab != "docs" or owner:
+            return no_update, no_update
+        question = parse_qs((search or "").lstrip("?")).get("q", [None])[0]
+        return _safe(panels.documents_panel, question), True
+
+    @app.callback(
+        Output("doc-question", "value"),
+        Input({"type": "doc-example", "index": ALL}, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def pick_document_example(clicks):
+        if not any(clicks or []) or not isinstance(ctx.triggered_id, dict):
+            return no_update
+        from service.knowledge import knowledge
+
+        examples = knowledge.examples()
+        index = ctx.triggered_id["index"]
+        return examples[index] if index < len(examples) else no_update
+
+    @app.callback(
+        Output("doc-job", "data"),
+        Output("doc-poll", "disabled"),
+        Output("doc-answer", "children"),
+        Input("doc-ask", "n_clicks"),
+        Input("doc-question", "n_submit"),
+        State("doc-question", "value"),
+        State("doc-use-model", "value"),
+        prevent_initial_call=True,
+    )
+    def ask_documents(_clicks, _submit, question, use_model):
+        from service.knowledge import knowledge
+
+        if not (question or "").strip():
+            return no_update, no_update, ui.message("Type a question first.", "info")
+        job_id = knowledge.start_ask(question.strip(), "model" in (use_model or []))
+        return job_id, False, panels.model_progress_view(knowledge.job(job_id))
+
+    @app.callback(
+        Output("doc-answer", "children", allow_duplicate=True),
+        Output("doc-poll", "disabled", allow_duplicate=True),
+        Input("doc-poll", "n_intervals"),
+        State("doc-job", "data"),
+        prevent_initial_call=True,
+    )
+    def poll_documents(_ticks, job_id):
+        from service.knowledge import knowledge
+
+        job = knowledge.job(job_id)
+        if job is None:
+            return no_update, True
+        if job["status"] == "running":
+            return panels.model_progress_view(job), False
+        if job["status"] == "error":
+            return ui.message(f"The answer failed: {job['error']}", "error"), True
+        return _safe(panels.document_answer_view, job["result"]), True
+
+    @app.callback(
+        Output("doc-upload-message", "children"),
+        Output("docs-owner", "data", allow_duplicate=True),
+        Input("doc-upload", "contents"),
+        Input("doc-rebuild", "n_clicks"),
+        State("doc-upload", "filename"),
+        prevent_initial_call=True,
+    )
+    def change_documents(contents, rebuild, filename):
+        from service.knowledge import knowledge
+
+        try:
+            if ctx.triggered_id == "doc-rebuild":
+                status = knowledge.index(rebuild=True).status()
+                return ui.message(f"Index rebuilt: {status['chunks']} passages from {status['files']} documents.", "success"), no_update
+            if not contents:
+                return no_update, no_update
+            data = base64.b64decode(contents.split(",", 1)[1])
+            saved = knowledge.add_document(filename or "document.md", data)
+        except (ValueError, OSError) as error:
+            return ui.message(str(error), "error"), no_update
+        return ui.message(f"Added {saved} and rebuilt the index. Reopen the tab to see it in the list.", "success"), None
 
     # -- Goal box -----------------------------------------------------------
 
