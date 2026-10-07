@@ -37,9 +37,16 @@ def framework_client():
 
     choice = os.environ.get("AIDS_LLM_PROVIDER", "none").strip().lower()
     if choice == "azure" or (choice == "auto" and os.environ.get("AIDS_AZURE_OPENAI_ENDPOINT")):
+        key = os.environ.get("AIDS_AZURE_OPENAI_KEY")
+        credential = None
+        if not key:
+            from azure.identity import DefaultAzureCredential
+
+            credential = DefaultAzureCredential(managed_identity_client_id=os.environ.get("AZURE_CLIENT_ID"))
         return OpenAIChatCompletionClient(
             model=os.environ.get("AIDS_AZURE_OPENAI_DEPLOYMENT"),
-            api_key=os.environ.get("AIDS_AZURE_OPENAI_KEY"),
+            api_key=key or None,
+            credential=credential,
             azure_endpoint=os.environ.get("AIDS_AZURE_OPENAI_ENDPOINT"),
             api_version=os.environ.get("AIDS_AZURE_OPENAI_API_VERSION", DEFAULT_AZURE_API_VERSION),
         )

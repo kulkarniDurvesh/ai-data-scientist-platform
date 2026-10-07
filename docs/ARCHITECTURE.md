@@ -346,6 +346,31 @@ flowchart LR
 | ask_user ends the turn | Clarifying questions go to the user instead of being guessed; the conversation resumes with the answer |
 | Number check on final answers | A final answer can't introduce numbers no tool returned without being flagged |
 
+## Azure
+
+```mermaid
+flowchart LR
+    GH[GitHub Actions] -->|image| GHCR[GitHub Container Registry]
+    S[azure-up / run-cloud] -->|az stack sub create<br/>deleteAll| ST[Deployment stack]
+    ST --> RG[rg-aidsp]
+    RG --> CA[Container Apps<br/>API + dashboard, scale to zero]
+    GHCR --> CA
+    CA -->|managed identity| OAI[Azure OpenAI<br/>gpt-4.1-mini]
+    CA -->|managed identity| SR[AI Search Free]
+    CA -->|managed identity| KV[Key Vault: api-key]
+    CA --> LA[Log Analytics + App Insights<br/>capped]
+    ST --> B[Budget alert]
+    D[azure-down] -->|delete stack + purge| ST
+```
+
+| Decision | Why |
+|---|---|
+| Deployment stack, `deleteAll` | Azure tracks what was created; one delete removes resources and the resource group |
+| Teardown in `finally` | `run-cloud` deletes everything on Enter, Ctrl+C, errors or a time limit |
+| GHCR instead of Azure Container Registry | Free for public repos; no registry billed while deployed |
+| Managed identity, key access disabled | No secrets to leak or rotate; RBAC roles scoped to each resource |
+| Scale to zero + capped logs + Free search | Idle costs nothing; a forgotten deployment stays cheap, and the budget emails early |
+
 ## MCP, Agent Framework and routing
 
 ```mermaid

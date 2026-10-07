@@ -16,3 +16,4 @@ pydantic>=2
 mcp>=2.3                # MCP server (mcp_server/)
 agent-framework-core>=1.20   # Microsoft Agent Framework (service/agents_framework.py)
 agent-framework-openai>=1.15 # its OpenAI-compatible client (Ollama /v1, Azure OpenAI)
+azure-identity>=1.17         # Entra ID / managed identity for Azure OpenAI

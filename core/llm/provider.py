@@ -14,6 +14,7 @@ back to rules. Settings (environment variables):
     AIDS_LLM_THINK      1 = let reasoning models think first (slow on CPU; default off)
     AIDS_AZURE_OPENAI_ENDPOINT, AIDS_AZURE_OPENAI_DEPLOYMENT,
     AIDS_AZURE_OPENAI_KEY, AIDS_AZURE_OPENAI_API_VERSION (default 2024-10-21)
+    (no key: Entra ID sign-in - the managed identity in Azure, az login locally)
 
 The default is no model: a 4B model on a laptop CPU takes about a minute
 per request, so a model is used only when switched on. "auto" uses Azure
@@ -116,13 +117,34 @@ class OllamaProvider(Provider):
 class AzureOpenAIProvider(Provider):
     name = "Azure OpenAI"
 
-    def __init__(self, endpoint: str | None = None, deployment: str | None = None, key: str | None = None, api_version: str | None = None):
+    SCOPE = "https://cognitiveservices.azure.com/.default"
+
+    def __init__(self, endpoint: str | None = None, deployment: str | None = None, key: str | None = None,
+                 api_version: str | None = None, credential=None):
         self.endpoint = (endpoint or os.environ.get("AIDS_AZURE_OPENAI_ENDPOINT", "")).rstrip("/")
         self.model = deployment or os.environ.get("AIDS_AZURE_OPENAI_DEPLOYMENT", "")
         self.key = key or os.environ.get("AIDS_AZURE_OPENAI_KEY", "")
         self.api_version = api_version or os.environ.get("AIDS_AZURE_OPENAI_API_VERSION", DEFAULT_AZURE_API_VERSION)
-        if not (self.endpoint and self.model and self.key):
-            raise LLMError("Azure OpenAI needs AIDS_AZURE_OPENAI_ENDPOINT, _DEPLOYMENT and _KEY.")
+        self.credential = credential
+        if not (self.endpoint and self.model):
+            raise LLMError("Azure OpenAI needs AIDS_AZURE_OPENAI_ENDPOINT and AIDS_AZURE_OPENAI_DEPLOYMENT.")
+        # Without a key, sign in with Entra ID: the managed identity in Azure
+        # (AZURE_CLIENT_ID), or az login / environment credentials locally.
+        if not self.key and self.credential is None:
+            try:
+                from azure.identity import DefaultAzureCredential
+            except ImportError as error:
+                raise LLMError("Azure OpenAI without a key needs the azure-identity package.") from error
+            self.credential = DefaultAzureCredential(managed_identity_client_id=os.environ.get("AZURE_CLIENT_ID"))
+
+    def _auth_headers(self) -> dict[str, str]:
+        if self.key:
+            return {"api-key": self.key}
+        try:
+            token = self.credential.get_token(self.SCOPE).token
+        except Exception as error:  # noqa: BLE001 - any sign-in failure is reported the same way
+            raise LLMError(f"Could not sign in to Azure OpenAI: {error}") from error
+        return {"Authorization": f"Bearer {token}"}
 
     def chat(self, messages, schema=None, temperature=0.0) -> str:
         payload: dict[str, Any] = {"messages": messages, "temperature": temperature}
@@ -132,7 +154,7 @@ class AzureOpenAIProvider(Provider):
                 "json_schema": {"name": "result", "schema": schema, "strict": False},
             }
         url = f"{self.endpoint}/openai/deployments/{self.model}/chat/completions?api-version={self.api_version}"
-        reply = _post_json(url, payload, headers={"api-key": self.key})
+        reply = _post_json(url, payload, headers=self._auth_headers())
         try:
             return reply["choices"][0]["message"]["content"] or ""
         except (KeyError, IndexError) as error:

@@ -29,6 +29,11 @@ This platform must work on **any** dataset. The pharma SFA workbook is only a te
 - Match the surrounding style: dataclasses for results, small pure functions in `core/`, no analysis logic in `ui/` or `api/` (both go through `service/session.py`), `core/` never imports `ui/`, `api/` or `service/`.
 - New capabilities get an API endpoint too (Pydantic models in `api/schemas.py`, JSON view in `api/results.py`) and a test in `tests/test_api.py`.
 
+## Azure (cost and safety)
+
+- Never deploy or delete Azure resources without the user's explicit go-ahead in the current conversation; previews (`-WhatIf`, precheck) are fine.
+- Keep everything inside the deployment stack (so `azure-down` removes it), idle cost near zero (scale to zero, free tiers, capped logs) and keys out of templates (managed identity).
+
 ## Tests
 
 - `python -m pytest -q` must pass.
@@ -68,6 +73,7 @@ service/              session layer (session.py) shared by the dashboard and the
 ui/                   Dash app: layout and callbacks (app.py), tab content (panels.py)
 api/                  FastAPI service: endpoints (main.py), Pydantic schemas, result views
 mcp_server/           MCP server exposing the agents' tools (python -m mcp_server)
+infra/                Azure Bicep deployment stack + precheck / azure-up / azure-down / run-cloud scripts
 domains/              optional domain files (*.yaml): the ONLY place domain terms may appear
 knowledge/            documents for the Documents tab (data, like domains/; examples.txt = example questions)
 evals/                evaluation sets (goals.yaml, questions.yaml) + runner: python -m evals [--model]
