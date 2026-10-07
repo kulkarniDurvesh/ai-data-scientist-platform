@@ -83,3 +83,16 @@ def test_app_layout_builds(tmp_path):
 
     assert app.layout is not None
     assert len(app.callback_map) >= 8
+
+
+def test_launcher_detects_a_port_in_use():
+    import socket
+
+    from app import port_in_use
+
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        assert port_in_use("127.0.0.1", port)
+    assert not port_in_use("127.0.0.1", port)
